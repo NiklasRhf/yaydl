@@ -469,7 +469,7 @@ pub fn App() -> impl IntoView {
                 <div class="flex flex-col h-full">
                     <div class="flex items-center justify-center h-12 p-4">
                         <h1 class="flex text-2xl font-bold space-x-1 items-center">
-                            <p>Yet Another YouTube</p>
+                            <p>Yeeeet Another YouTube</p>
                             <a href="https://www.youtube.com" target="_blank">
                                 <Icon icon=icondata::AiYoutubeFilled class="h-8 w-8 text-red-600 hover:text-red-700"/>
                             </a>
