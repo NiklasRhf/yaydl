@@ -23,6 +23,7 @@
     }
   },
   "bundle": {
+    "createUpdaterArtifacts": true,
     "externalBin": [
       "binaries/ffmpeg",
       "binaries/ffplay",
@@ -38,5 +39,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "windows": {
+        "installMode": "passive"
+      },
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJCMTBCMDdDNjk1M0NCNDMKUldSRHkxTnBmTEFRSzdhSXBRcG54S3o4N1pPYzBLM1BwcEViLzJnQU1IWjhRU09qUFh4KzhONHcK",
+      "endpoints": [
+        "https://github.com/NiklasRhf/yaydl/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

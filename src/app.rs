@@ -32,14 +32,14 @@ where
                         <Icon icon=icondata::FaDownloadSolid style="color: black" class="h-8 w-8"/>
                     </a>
                 </div>
-                <div
-                    class="h-14 w-14 hover:bg-blue-200 flex flex-col items-center justify-center"
-                    on:click=move |_| set_main_state(MainState::Statistics)
-                >
-                    <a href="#">
-                        <Icon icon=icondata::BsFileBarGraphFill style="color: black" class="h-8 w-8"/>
-                    </a>
-                </div>
+                // <div
+                //     class="h-14 w-14 hover:bg-blue-200 flex flex-col items-center justify-center"
+                //     on:click=move |_| set_main_state(MainState::Statistics)
+                // >
+                //     <a href="#">
+                //         <Icon icon=icondata::BsFileBarGraphFill style="color: black" class="h-8 w-8"/>
+                //     </a>
+                // </div>
             </div>
             <div class="flex-grow"></div>
             <div
@@ -51,8 +51,8 @@ where
                 </a>
             </div>
             <div class="h-14 w-14 hover:bg-blue-200 flex flex-col items-center justify-center">
-                <a href="#">
-                    <Icon icon=icondata::AiGithubFilled style="color: black" class="h-8 w-8"/>
+                <a href="https://github.com/NiklasRhf/yaydl" target="_blank">
+                    <Icon icon=icondata::AiGithubFilled class="h-8 w-8 text-black-800"/>
                 </a>
             </div>
         </div>
@@ -63,6 +63,7 @@ where
 pub enum MainState {
     Settings,
     Download,
+    #[allow(dead_code)]
     Statistics,
 }
 
@@ -371,7 +372,7 @@ where
                                 }
                                 DownloadState::Loading => {
                                     view! {
-                                        <Icon icon=icondata::CgSpinner class="w-8 h-8 animate-spin text-yellow-400 dark:text-gray-600 " />
+                                        <Icon icon=icondata::CgSpinner class="w-8 h-8 animate-spin text-gray-600" />
                                    }.into_view()
                                 }
                                 DownloadState::Finished => {
@@ -467,10 +468,10 @@ pub fn App() -> impl IntoView {
             <div class="flex-1">
                 <div class="flex flex-col h-full">
                     <div class="flex items-center justify-center h-12 p-4">
-                        <h1 class="flex text-2xl font-bold space-x-1">
+                        <h1 class="flex text-2xl font-bold space-x-1 items-center">
                             <p>Yet Another YouTube</p>
-                            <a href="#">
-                                <Icon icon=icondata::AiYoutubeFilled style="color: black" class="h-8 w-8"/>
+                            <a href="https://www.youtube.com" target="_blank">
+                                <Icon icon=icondata::AiYoutubeFilled class="h-8 w-8 text-red-600 hover:text-red-700"/>
                             </a>
                             <p>Downloader</p>
                         </h1>
