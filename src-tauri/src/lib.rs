@@ -6,6 +6,7 @@ use tauri_plugin_shell::ShellExt;
 
 mod settings;
 use settings::Settings;
+use tauri_plugin_updater::UpdaterExt;
 
 #[derive(Default)]
 pub struct AppData {
@@ -27,11 +28,14 @@ async fn try_add<R: Runtime>(app_handle: AppHandle<R>) -> Result<String, ()> {
             return Ok(text);
         }
     }
-    return Err(())
+    return Err(());
 }
 
 #[tauri::command]
-fn open_explorer<R: Runtime>(app_handle: AppHandle<R>, state: tauri::State<'_, Mutex<AppData>>) -> Result<(), String> {
+fn open_explorer<R: Runtime>(
+    app_handle: AppHandle<R>,
+    state: tauri::State<'_, Mutex<AppData>>,
+) -> Result<(), String> {
     let shell = app_handle.shell();
     let explorer = if cfg!(target_os = "windows") {
         "explorer"
@@ -42,12 +46,14 @@ fn open_explorer<R: Runtime>(app_handle: AppHandle<R>, state: tauri::State<'_, M
     } else {
         return Err("Unsupported operating system".into());
     };
-    let output_dir = state.lock().unwrap().settings.output_dir.display().to_string();
-    shell
-        .command(explorer)
-        .arg(output_dir)
-        .spawn()
-        .unwrap();
+    let output_dir = state
+        .lock()
+        .unwrap()
+        .settings
+        .output_dir
+        .display()
+        .to_string();
+    shell.command(explorer).arg(output_dir).spawn().unwrap();
     Ok(())
 }
 
@@ -69,24 +75,7 @@ async fn retreive_metadata<R: Runtime>(url: &str, app_handle: AppHandle<R>) -> R
         .await
         .unwrap();
 
-    // let output = tauri_plugin_shell::process::Command::new("yt-dlp")
-    //     .args([
-    //         "--verbose",
-    //         "--get-id",
-    //         "--get-title",
-    //         "--get-duration",
-    //         "--get-thumbnail",
-    //         &url,
-    //     ])
-    //     .output().await
-    //     .map_err(|_| tauri::api::Error::Command("Failed to execute yt-dlp".into()))?;
-    // let output_err = std::str::from_utf8(&output.stderr).unwrap();
-    // if output_err.contains("ERROR") {
-    //     return Err("The provided URL is not valid".into());
-    // }
     let output = std::str::from_utf8(&output.stdout).unwrap();
-    // let (_, metadata) = parse_metadata(output, &url)?;
-    // Ok(MetaData)
     Ok(output.to_string())
 }
 
@@ -120,13 +109,6 @@ async fn execute_yt_dl<R: Runtime>(
         ])
         .spawn()
         .unwrap();
-    // .map_err(|_| "Failed to execute yt-dlp".into())?;
-
-    // state
-    //     .downloads
-    //     .lock()
-    //     .await
-    //     .insert(metadata.id.clone(), child);
 
     while let Some(event) = rx.recv().await {
         if let tauri_plugin_shell::process::CommandEvent::Stdout(line) = event {
@@ -143,10 +125,51 @@ async fn execute_yt_dl<R: Runtime>(
     Ok(())
 }
 
+async fn update(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(update) = app
+        .updater_builder()
+        .on_before_exit(|| {
+            println!("app is about to exit on Windows!");
+        })
+        .build()
+        .map_err(|_| String::from("Couldn't build updater"))?
+        .check()
+        .await
+        .map_err(|_| String::from("Couldn't check updater"))?
+    {
+        let mut downloaded = 0;
+
+        update
+            .download_and_install(
+                |chunk_length, content_length| {
+                    downloaded += chunk_length;
+                    println!("downloaded {downloaded} from {content_length:?}");
+                },
+                || {
+                    println!("download finished");
+                },
+            )
+            .await
+            .map_err(|_| String::from("Updater couldn't download and install"))?;
+
+        println!("update installed");
+        app.restart();
+    }
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = update(handle).await {
+                    println!("{}", e);
+                }
+            });
             let config_dir = app.path().app_config_dir().unwrap();
             let app_data = AppData {
                 settings: Settings::setup_settings(&config_dir),
