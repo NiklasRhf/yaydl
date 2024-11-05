@@ -6698,6 +6698,14 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-updater",
  "toml 0.8.19",
+ "yaydl-shared",
+]
+
+[[package]]
+name = "yaydl-shared"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -6713,6 +6721,7 @@ dependencies = [
  "serde-wasm-bindgen",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "yaydl-shared",
 ]
 
 [[package]]

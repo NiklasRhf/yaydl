@@ -1,21 +1,29 @@
 use std::sync::Mutex;
-
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_shell::ShellExt;
 
 mod settings;
-use settings::Settings;
+use settings::Setup;
 use tauri_plugin_updater::UpdaterExt;
+use yaydl_shared::{Metadata, Settings};
 
-#[derive(Default)]
 pub struct AppData {
     download_list: Vec<String>,
     settings: Settings,
 }
 
+impl Default for AppData {
+    fn default() -> Self {
+        Self {
+            download_list: Default::default(),
+            settings: Settings::with_defaults(),
+        }
+    }
+}
+
 #[tauri::command]
-async fn try_add<R: Runtime>(app_handle: AppHandle<R>) -> Result<String, ()> {
+async fn try_add<R: Runtime>(app_handle: AppHandle<R>) -> Result<String, String> {
     let content = app_handle.clipboard().read_text();
     let state = app_handle.state::<Mutex<AppData>>();
     if let Ok(text) = content {
@@ -24,11 +32,15 @@ async fn try_add<R: Runtime>(app_handle: AppHandle<R>) -> Result<String, ()> {
             let contains = state.download_list.contains(&text);
             if !contains {
                 state.download_list.push(text.clone());
+                return Ok(text);
+            } else {
+                return Err("Video has already been added!".to_string());
             }
-            return Ok(text);
+        } else {
+            return Err("Clipboard doesn't contain valid youtube link".to_string());
         }
     }
-    return Err(());
+    return Err("Unknown error occurred".to_string());
 }
 
 #[tauri::command]
@@ -58,7 +70,10 @@ fn open_explorer<R: Runtime>(
 }
 
 #[tauri::command]
-async fn retreive_metadata<R: Runtime>(url: &str, app_handle: AppHandle<R>) -> Result<String, ()> {
+async fn retreive_metadata<R: Runtime>(
+    url: &str,
+    app_handle: AppHandle<R>,
+) -> Result<Metadata, String> {
     let shell = app_handle.shell();
     let output = shell
         .sidecar("yt-dlp")
@@ -73,10 +88,22 @@ async fn retreive_metadata<R: Runtime>(url: &str, app_handle: AppHandle<R>) -> R
         ])
         .output()
         .await
-        .unwrap();
+        .map_err(|_| String::from("Retreiving metadata failed"))?;
+
+    if !output.status.success() {
+        return Err(String::from("Retreiving metadata failed"));
+    }
 
     let output = std::str::from_utf8(&output.stdout).unwrap();
-    Ok(output.to_string())
+    let metadata: Vec<_> = output.split("\n\n").collect();
+    Ok(Metadata {
+        title: metadata[0].to_string(),
+        id: metadata[1].to_string(),
+        thumbnail: metadata[2].to_string(),
+        duration: metadata[3].to_string(),
+        url: url.to_string(),
+        loading: false,
+    })
 }
 
 #[tauri::command]

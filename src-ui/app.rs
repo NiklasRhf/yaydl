@@ -1,19 +1,16 @@
-use std::path::PathBuf;
-
+use crate::notification::{
+    provide_notification_context, Notification, NotificationContext, NotificationList,
+    NotificationType,
+};
 use leptos::*;
 use leptos_icons::Icon;
-use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
+use yaydl_shared::{Settings, Metadata, MetadataArgs, Download, DownloadState};
 
 #[wasm_bindgen]
 extern "C" {
-    #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"])]
-    async fn invoke(cmd: &str, args: JsValue) -> JsValue;
-}
-
-#[derive(Serialize, Deserialize)]
-struct GreetArgs<'a> {
-    name: &'a str,
+    #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"], catch)]
+    async fn invoke(cmd: &str, args: JsValue) -> Result<JsValue, JsValue>;
 }
 
 #[component]
@@ -65,36 +62,6 @@ pub enum MainState {
     Download,
     #[allow(dead_code)]
     Statistics,
-}
-
-#[derive(Serialize, Deserialize)]
-struct MetadataArgs<'a> {
-    url: &'a str,
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct Metadata {
-    id: String,
-    url: String,
-    title: String,
-    duration: String,
-    thumbnail: String,
-    loading: bool,
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct Download {
-    metadata: Metadata,
-    download_state: DownloadState,
-}
-
-#[derive(Debug, Default, Clone, PartialEq)]
-pub enum DownloadState {
-    #[default]
-    Idle,
-    Loading,
-    Finished,
-    Failure,
 }
 
 #[component()]
@@ -181,35 +148,49 @@ pub fn MainContent() -> impl IntoView {
 
     let add = move |_| {
         spawn_local(async move {
-            let try_add = serde_wasm_bindgen::from_value::<String>(invoke("try_add", JsValue::NULL).await);
-            if let Ok(url) = try_add {
-                let mut updated_downloads = downloads.get_untracked();
-                updated_downloads.insert(
-                    0,
-                    Download {
-                        metadata: Metadata {
-                            url: url.clone(),
-                            loading: true,
+            match invoke("try_add", JsValue::NULL).await {
+                Ok(url) => {
+                    let url: String = serde_wasm_bindgen::from_value(url.clone()).unwrap();
+                    let mut updated_downloads = downloads.get_untracked();
+                    updated_downloads.insert(
+                        0,
+                        Download {
+                            metadata: Metadata {
+                                url: url.clone(),
+                                loading: true,
+                                ..Default::default()
+                            },
                             ..Default::default()
                         },
-                        ..Default::default()
-                    },
-                );
-                set_downloads.set(updated_downloads);
-                let args = serde_wasm_bindgen::to_value(&MetadataArgs { url: &url }).unwrap();
-                let metadata = invoke("retreive_metadata", args).await;
-                let metadata: String = serde_wasm_bindgen::from_value(metadata).unwrap();
-                let metadata = metadata.split("\n\n").collect::<Vec<_>>();
-                let mut updated_downloads = downloads.get_untracked().clone();
-                let latest_download = &mut updated_downloads[0];
-                latest_download.metadata.title = metadata[0].to_string();
-                latest_download.metadata.id = metadata[1].to_string();
-                latest_download.metadata.thumbnail = metadata[2].to_string();
-                latest_download.metadata.duration = metadata[3].to_string();
-                latest_download.metadata.loading = false;
-                set_downloads.set(updated_downloads);
-            } else {
-                // TODO: show notification
+                    );
+                    set_downloads.set(updated_downloads);
+                    let args = serde_wasm_bindgen::to_value(&MetadataArgs { url: &url }).unwrap();
+                    match invoke("retreive_metadata", args).await {
+                        Ok(js_val) => {
+                            let metadata = serde_wasm_bindgen::from_value(js_val).unwrap();
+                            let mut updated_downloads = downloads.get_untracked().clone();
+                            let latest_download = &mut updated_downloads[0];
+                            latest_download.metadata = metadata;
+                            set_downloads.set(updated_downloads);
+                        },
+                        Err(js_val) => {
+                            let err: String = serde_wasm_bindgen::from_value(js_val).unwrap();
+                            let notification_context = use_context::<NotificationContext>().unwrap();
+                            notification_context.add_notification(Notification {
+                                text: err,
+                                notification_type: NotificationType::Error,
+                            });
+                        },
+                    }
+                }
+                Err(err) => {
+                    let err: String = serde_wasm_bindgen::from_value(err.clone()).unwrap();
+                    let notification_context = use_context::<NotificationContext>().unwrap();
+                    notification_context.add_notification(Notification {
+                        text: err,
+                        notification_type: NotificationType::Info,
+                    });
+                }
             }
         });
     };
@@ -243,12 +224,13 @@ pub fn MainContent() -> impl IntoView {
                     url: &download.metadata.url,
                 })
                 .unwrap();
-                if let Ok(_) =
-                    serde_wasm_bindgen::from_value::<()>(invoke("execute_yt_dl", args).await)
-                {
-                    update_download_state(download.metadata.id.clone(), DownloadState::Finished);
-                } else {
-                    update_download_state(download.metadata.id.clone(), DownloadState::Failure);
+                match invoke("execute_yt_dl", args).await {
+                    Ok(_) => {
+                        update_download_state(download.metadata.id.clone(), DownloadState::Finished);
+                    }
+                    Err(_) => {
+                        update_download_state(download.metadata.id.clone(), DownloadState::Failure);
+                    }
                 }
             }
         });
@@ -256,7 +238,14 @@ pub fn MainContent() -> impl IntoView {
 
     let open_explorer = move |_| {
         spawn_local(async move {
-            invoke("open_explorer", JsValue::NULL).await;
+            if let Err(err) = invoke("open_explorer", JsValue::NULL).await {
+                let err = serde_wasm_bindgen::from_value::<String>(err).unwrap();
+                let notification_context = use_context::<NotificationContext>().unwrap();
+                notification_context.add_notification(Notification {
+                    text: err,
+                    notification_type: NotificationType::Error,
+                });
+            }
         });
     };
 
@@ -314,11 +303,13 @@ where
                 url: &download_tmp.metadata.url,
             })
             .unwrap();
-            if let Ok(_) = serde_wasm_bindgen::from_value::<()>(invoke("execute_yt_dl", args).await)
-            {
-                update_download_state(download_tmp.metadata.id.clone(), DownloadState::Finished);
-            } else {
-                update_download_state(download_tmp.metadata.id.clone(), DownloadState::Failure);
+            match invoke("execute_yt_dl", args).await {
+                Ok(_) => {
+                    update_download_state(download_tmp.metadata.id.clone(), DownloadState::Finished);
+                }
+                Err(_) => {
+                    update_download_state(download_tmp.metadata.id.clone(), DownloadState::Failure);
+                }
             }
         });
     };
@@ -394,20 +385,13 @@ where
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-pub struct Settings {
-    pub output_dir: PathBuf,
-    pub output_format: String,
-    pub dark_theme: bool,
-}
-
 #[component]
 pub fn Settings() -> impl IntoView {
     let (output_dir, set_output_dir) = create_signal(String::new());
     create_effect(move |_| {
         spawn_local(async move {
-            let js_val = invoke("get_settings", JsValue::NULL).await;
-            if let Ok(settings) = serde_wasm_bindgen::from_value::<Settings>(js_val) {
+            if let Ok(js_val) = invoke("get_settings", JsValue::NULL).await {
+                let settings: Settings = serde_wasm_bindgen::from_value(js_val).unwrap();
                 set_output_dir.set(settings.output_dir.display().to_string());
             }
         });
@@ -415,14 +399,14 @@ pub fn Settings() -> impl IntoView {
 
     let get_output_dir = move |_| {
         spawn_local(async move {
-            let path =
-                serde_wasm_bindgen::from_value(invoke("choose_output_dir", JsValue::NULL).await);
-            match path {
-                Ok(path) => {
+            match invoke("choose_output_dir", JsValue::NULL).await {
+                Ok(js_val) => {
+                    let path = serde_wasm_bindgen::from_value(js_val).unwrap();
                     set_output_dir.set(path);
                 }
-                // TODO: handle this?
-                _ => {}
+                Err(_) => {
+                    // TODO
+                }
             }
         });
     };
@@ -459,6 +443,8 @@ pub fn Statistics() -> impl IntoView {
 #[component]
 pub fn App() -> impl IntoView {
     let (state, set_state) = create_signal(MainState::Download);
+    let _ = provide_notification_context();
+
     let set_main_state = move |state: MainState| {
         set_state.set(state);
     };
@@ -483,6 +469,7 @@ pub fn App() -> impl IntoView {
                     }}
                 </div>
             </div>
+            <NotificationList />
         </main>
     }
 }

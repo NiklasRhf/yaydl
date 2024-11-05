@@ -1,4 +1,5 @@
 mod app;
+mod notification;
 
 use app::App;
 use leptos::{mount_to_body, view};

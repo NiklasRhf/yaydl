@@ -9,26 +9,15 @@ use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::AppData;
+use yaydl_shared::Settings;
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-pub struct Settings {
-    pub output_dir: PathBuf,
-    pub output_format: String,
-    pub dark_theme: bool,
+pub trait Setup {
+    fn setup_settings(config_dir: &PathBuf) -> Self;
+    fn with_defaults() -> Self;
 }
 
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            output_dir: dirs::audio_dir().unwrap(),
-            output_format: String::from("mp3"),
-            dark_theme: true,
-        }
-    }
-}
-
-impl Settings {
-    pub(crate) fn setup_settings(config_dir: &PathBuf) -> Self {
+impl Setup for Settings {
+    fn setup_settings(config_dir: &PathBuf) -> Self {
         fs::create_dir_all(config_dir).unwrap();
         let config_file = config_dir.join("settings.toml");
         if let Ok(mut file) = File::open(&config_file) {
@@ -38,10 +27,18 @@ impl Settings {
             settings
         } else {
             let mut file = File::create(&config_file).expect("to create file");
-            let settings = Settings::default();
+            let settings = Self::with_defaults();
             file.write_all(toml::to_string(&settings).expect("to serialize").as_bytes())
                 .expect("to write to file");
             settings
+        }
+    }
+
+    fn with_defaults() -> Self {
+        Self {
+            output_dir: dirs::audio_dir().unwrap(),
+            output_format: String::from("mp3"),
+            dark_theme: true,
         }
     }
 }
