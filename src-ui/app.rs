@@ -4,13 +4,34 @@ use crate::notification::{
 };
 use leptos::*;
 use leptos_icons::Icon;
+use serde::Deserialize;
 use wasm_bindgen::prelude::*;
-use yaydl_shared::{Settings, Metadata, MetadataArgs, Download, DownloadState};
+use yaydl_shared::{Download, DownloadEvent, DownloadState, Metadata, MetadataArgs, Settings};
 
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"], catch)]
     async fn invoke(cmd: &str, args: JsValue) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "event"])]
+    async fn listen(event: &str, handler: &js_sys::Function) -> JsValue;
+}
+
+#[derive(Debug, Deserialize)]
+struct Event {
+    #[allow(dead_code)]
+    id: u8,
+    #[allow(dead_code)]
+    event: String,
+    payload: EventType,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum EventType {
+    Download(DownloadEvent),
+    #[allow(dead_code)]
+    SomethingOtherEvent,
 }
 
 #[component]
@@ -88,10 +109,23 @@ pub fn MainContent() -> impl IntoView {
     // };
     // let download_dummy_3 = Download {
     //     metadata: Metadata {
+    //         url: "https://www.youtube.com/watch?v=cBSUf04SHYY".into(),
+    //         thumbnail: "https://i.ytimg.com/vi_webp/cBSUf04SHYY/maxresdefault.webp".into(),
+    //         duration: "1:00:00".into(),
+    //         title: "Utopia - Calming Ethereal Ambient Music - Deep Meditation and Relaxation"
+    //             .into(),
+    //         loading: false,
+    //         ..Default::default()
+    //     },
+    //     download_state: DownloadState::Loading(69),
+    //     ..Default::default()
+    // };
+    // let download_dummy_4 = Download {
+    //     metadata: Metadata {
     //         url: "1".into(),
     //         ..Default::default()
     //     },
-    //     download_state: DownloadState::Loading,
+    //     download_state: DownloadState::Loading(0),
     //     ..Default::default()
     // };
     // let download_dummy_4 = Download {
@@ -115,7 +149,7 @@ pub fn MainContent() -> impl IntoView {
     //         url: "1".into(),
     //         ..Default::default()
     //     },
-    //     download_state: DownloadState::Failure,
+    //     download_state: DownloadState::Finished,
     //     ..Default::default()
     // };
     // let download_dummy_7 = Download {
@@ -123,7 +157,7 @@ pub fn MainContent() -> impl IntoView {
     //         url: "1".into(),
     //         ..Default::default()
     //     },
-    //     download_state: DownloadState::Failure,
+    //     download_state: DownloadState::Idle,
     //     ..Default::default()
     // };
     // let download_dummy_8 = Download {
@@ -164,7 +198,7 @@ pub fn MainContent() -> impl IntoView {
                         },
                     );
                     set_downloads.set(updated_downloads);
-                    let args = serde_wasm_bindgen::to_value(&MetadataArgs { url: &url }).unwrap();
+                    let args = serde_wasm_bindgen::to_value(&MetadataArgs { url: &url, id: "" }).unwrap();
                     match invoke("retreive_metadata", args).await {
                         Ok(js_val) => {
                             let metadata = serde_wasm_bindgen::from_value(js_val).unwrap();
@@ -219,9 +253,10 @@ pub fn MainContent() -> impl IntoView {
                 {
                     continue;
                 }
-                update_download_state(download.metadata.id.clone(), DownloadState::Loading);
+                update_download_state(download.metadata.id.clone(), DownloadState::Loading(0));
                 let args = serde_wasm_bindgen::to_value(&MetadataArgs {
                     url: &download.metadata.url,
+                    id: &download.metadata.id,
                 })
                 .unwrap();
                 match invoke("execute_yt_dl", args).await {
@@ -248,6 +283,19 @@ pub fn MainContent() -> impl IntoView {
             }
         });
     };
+
+    create_effect(move |_| {
+        let closure = Closure::<dyn FnMut(_)>::new(move |s: JsValue| {
+            let event: Event = serde_wasm_bindgen::from_value(s).unwrap();
+            if let EventType::Download(d_ev) = event.payload {
+                update_download_state(d_ev.id, DownloadState::Loading(d_ev.progress));
+            }
+        });
+        spawn_local(async move {
+            listen("download-progress", closure.as_ref().unchecked_ref()).await;
+            closure.forget();
+        });
+    });
 
     view! {
         <div class="flex items-center h-12 p-2 bg-gray-300 space-x-1">
@@ -297,10 +345,11 @@ where
 
     let download_f = move |_| {
         let download_tmp = download.get().clone();
-        update_download_state(download_tmp.metadata.id.clone(), DownloadState::Loading);
+        update_download_state(download_tmp.metadata.id.clone(), DownloadState::Loading(0));
         spawn_local(async move {
             let args = serde_wasm_bindgen::to_value(&MetadataArgs {
                 url: &download_tmp.metadata.url,
+                id: &download_tmp.metadata.id,
             })
             .unwrap();
             match invoke("execute_yt_dl", args).await {
@@ -356,24 +405,53 @@ where
                             match download.get_untracked().download_state {
                                 DownloadState::Idle => {
                                     view! {
-                                        <button on:click=download_f class="h-8 w-8">
+                                        <button on:click=download_f class="h-10 w-10">
                                             <Icon icon=icondata::BiDownloadSolid class="h-full w-full text-gray-600 hover:text-gray-800"/>
                                         </button>
                                     }.into_view()
                                 }
-                                DownloadState::Loading => {
-                                    view! {
-                                        <Icon icon=icondata::CgSpinner class="w-8 h-8 animate-spin text-gray-600" />
-                                   }.into_view()
+                                DownloadState::Loading(progress) => {
+                                    { if progress == 0 {
+                                        view! {
+                                            <Icon icon=icondata::CgSpinner class="w-10 h-10 animate-spin text-gray-600" />
+                                        }.into_view()
+                                    } else {
+                                        view! {
+                                            <div class="relative w-10 h-10">
+                                              <svg class="w-full h-full" viewBox="0 0 100 100">
+                                                <circle
+                                                  class="text-gray-400 stroke-current"
+                                                  stroke-width="15"
+                                                  cx="50"
+                                                  cy="50"
+                                                  r="40"
+                                                  fill="transparent"
+                                                ></circle>
+                                                <circle
+                                                  class="text-blue-500  progress-ring__circle stroke-current"
+                                                  stroke-width="15"
+                                                  stroke-linecap="round"
+                                                  cx="50"
+                                                  cy="50"
+                                                  r="40"
+                                                  fill="transparent"
+                                                  stroke-dasharray="251.2"
+                                                  stroke-dashoffset=format!("calc(251.2px - (251.2px * {progress}) / 100)")
+                                                ></circle>
+                                                <text x="50" y="50" font-size="26" text-anchor="middle" alignment-baseline="middle">{progress}%</text>
+                                              </svg>
+                                            </div>
+                                       }.into_view()
+                                    }}
                                 }
                                 DownloadState::Finished => {
                                     view! {
-                                        <Icon icon=icondata::AiCheckCircleTwotone class="h-8 w-8 fill-green-600 stroke-green-600" style="stroke-width: 2%" />
+                                        <Icon icon=icondata::AiCheckCircleTwotone class="h-10 w-10 fill-green-600 stroke-green-600" style="stroke-width: 2%" />
                                    }.into_view()
                                 }
                                 DownloadState::Failure => {
                                     view! {
-                                        <Icon icon=icondata::BiErrorCircleRegular class="h-8 w-8 fill-red-600 stroke-red-600 stroke-[0.5px]" />
+                                        <Icon icon=icondata::BiErrorCircleRegular class="h-10 w-10 fill-red-600 stroke-red-600 stroke-[0.5px]" />
                                    }.into_view()
                                 }
                             }

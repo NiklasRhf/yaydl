@@ -22,6 +22,7 @@ pub struct Metadata {
 #[derive(Serialize, Deserialize)]
 pub struct MetadataArgs<'a> {
     pub url: &'a str,
+    pub id: &'a str,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -34,7 +35,13 @@ pub struct Download {
 pub enum DownloadState {
     #[default]
     Idle,
-    Loading,
+    Loading(u8),
     Finished,
     Failure,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DownloadEvent {
+    pub id: String,
+    pub progress: u8,
 }

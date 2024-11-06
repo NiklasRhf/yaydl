@@ -1,12 +1,13 @@
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager, Runtime};
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_shell::ShellExt;
 
 mod settings;
 use settings::Setup;
 use tauri_plugin_updater::UpdaterExt;
-use yaydl_shared::{Metadata, Settings};
+use yaydl_shared::{DownloadEvent, Metadata, Settings};
 
 pub struct AppData {
     download_list: Vec<String>,
@@ -109,6 +110,7 @@ async fn retreive_metadata<R: Runtime>(
 #[tauri::command]
 async fn execute_yt_dl<R: Runtime>(
     url: String,
+    id: String,
     app_handle: AppHandle<R>,
     state: tauri::State<'_, Mutex<AppData>>,
 ) -> Result<(), String> {
@@ -144,7 +146,14 @@ async fn execute_yt_dl<R: Runtime>(
                 let (_, remainder) = line.split_at("[download]".len());
                 let remainder = remainder.trim_start();
                 let percent = remainder.split(' ').collect::<Vec<_>>()[0];
-                let _percent = &percent[..percent.len() - 1];
+                let percent = &percent[..percent.len() - 1];
+                if let Ok(progress) = percent.parse::<f32>() {
+                    let progress = progress as u8;
+                    app_handle.emit("download-progress", DownloadEvent {
+                        id: id.clone(),
+                        progress,
+                    }).unwrap();
+                }
             }
         }
     }
