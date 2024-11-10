@@ -1,5 +1,4 @@
 use std::sync::Mutex;
-use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_shell::ShellExt;
@@ -7,7 +6,9 @@ use tauri_plugin_shell::ShellExt;
 mod settings;
 use settings::Setup;
 use tauri_plugin_updater::UpdaterExt;
-use yaydl_shared::{DownloadEvent, Metadata, Settings};
+use yaydl_shared::{AddLinkError, DownloadEvent, Metadata, MetadataError, Settings, UpdateError, YaydlError};
+
+type Result<T> = std::result::Result<T, YaydlError>;
 
 pub struct AppData {
     download_list: Vec<String>,
@@ -24,31 +25,30 @@ impl Default for AppData {
 }
 
 #[tauri::command]
-async fn try_add<R: Runtime>(app_handle: AppHandle<R>) -> Result<String, String> {
+async fn try_add<R: Runtime>(app_handle: AppHandle<R>) -> Result<String> {
     let content = app_handle.clipboard().read_text();
     let state = app_handle.state::<Mutex<AppData>>();
-    if let Ok(text) = content {
-        if text.contains("https://www.youtube.com/") {
+    match content {
+        Ok(text) if text.contains("https://www.youtube.com/") => {
             let mut state = state.lock().unwrap();
             let contains = state.download_list.contains(&text);
             if !contains {
                 state.download_list.push(text.clone());
-                return Ok(text);
+                Ok(text)
             } else {
-                return Err("Video has already been added!".to_string());
+                Err(YaydlError::AddLinkError(AddLinkError::AlreadyAdded))
             }
-        } else {
-            return Err("Clipboard doesn't contain valid youtube link".to_string());
         }
+        Ok(_) => Err(YaydlError::AddLinkError(AddLinkError::NoValidLink)),
+        Err(_) => Err(YaydlError::AddLinkError(AddLinkError::ClipboardRead)),
     }
-    return Err("Unknown error occurred".to_string());
 }
 
 #[tauri::command]
 fn open_explorer<R: Runtime>(
     app_handle: AppHandle<R>,
     state: tauri::State<'_, Mutex<AppData>>,
-) -> Result<(), String> {
+) -> Result<()> {
     let shell = app_handle.shell();
     let explorer = if cfg!(target_os = "windows") {
         "explorer"
@@ -57,7 +57,7 @@ fn open_explorer<R: Runtime>(
     } else if cfg!(target_os = "linux") {
         "xdg-open"
     } else {
-        return Err("Unsupported operating system".into());
+        return Err(YaydlError::UnsupportedOs);
     };
     let output_dir = state
         .lock()
@@ -70,15 +70,17 @@ fn open_explorer<R: Runtime>(
     Ok(())
 }
 
+// type Result<T> = std::result::Result<T>;
+
 #[tauri::command]
 async fn retreive_metadata<R: Runtime>(
     url: &str,
     app_handle: AppHandle<R>,
-) -> Result<Metadata, String> {
+) -> Result<Metadata> {
     let shell = app_handle.shell();
     let output = shell
         .sidecar("yt-dlp")
-        .unwrap()
+        .map_err(|e| YaydlError::TauriShellError(e.to_string()))?
         .args([
             "--verbose",
             "--get-id",
@@ -89,14 +91,20 @@ async fn retreive_metadata<R: Runtime>(
         ])
         .output()
         .await
-        .map_err(|_| String::from("Retreiving metadata failed"))?;
+        .map_err(|e| YaydlError::TauriShellError(e.to_string()))?;
 
     if !output.status.success() {
-        return Err(String::from("Retreiving metadata failed"));
+        return Err(YaydlError::MetadataError(MetadataError::RetreivalFailed));
     }
 
-    let output = std::str::from_utf8(&output.stdout).unwrap();
-    let metadata: Vec<_> = output.split("\n\n").collect();
+    let output_str = std::str::from_utf8(&output.stdout)
+        .map_err(|_| YaydlError::Utf8Conversion)?;
+    let metadata: Vec<&str> = output_str.split("\n\n").collect();
+
+    if metadata.len() < 4 {
+        return Err(YaydlError::MetadataError(MetadataError::MissingFields));
+    }
+
     Ok(Metadata {
         title: metadata[0].to_string(),
         id: metadata[1].to_string(),
@@ -113,7 +121,7 @@ async fn execute_yt_dl<R: Runtime>(
     id: String,
     app_handle: AppHandle<R>,
     state: tauri::State<'_, Mutex<AppData>>,
-) -> Result<(), String> {
+) -> Result<()> {
     let shell = app_handle.shell();
     let output_dir = state
         .lock()
@@ -126,7 +134,7 @@ async fn execute_yt_dl<R: Runtime>(
 
     let (mut rx, _) = shell
         .sidecar("yt-dlp")
-        .unwrap()
+        .map_err(|e| YaydlError::TauriShellError(e.to_string()))?
         .args([
             "--newline",
             "-x",
@@ -137,11 +145,11 @@ async fn execute_yt_dl<R: Runtime>(
             &url,
         ])
         .spawn()
-        .unwrap();
+        .map_err(|e| YaydlError::TauriShellError(e.to_string()))?;
 
     while let Some(event) = rx.recv().await {
         if let tauri_plugin_shell::process::CommandEvent::Stdout(line) = event {
-            let line = std::str::from_utf8(&line).unwrap();
+            let line = std::str::from_utf8(&line).map_err(|_| YaydlError::Utf8Conversion)?;
             if line.starts_with("[download]") {
                 let (_, remainder) = line.split_at("[download]".len());
                 let remainder = remainder.trim_start();
@@ -149,10 +157,15 @@ async fn execute_yt_dl<R: Runtime>(
                 let percent = &percent[..percent.len() - 1];
                 if let Ok(progress) = percent.parse::<f32>() {
                     let progress = progress as u8;
-                    app_handle.emit("download-progress", DownloadEvent {
-                        id: id.clone(),
-                        progress,
-                    }).unwrap();
+                    app_handle
+                        .emit(
+                            "download-progress",
+                            DownloadEvent {
+                                id: id.clone(),
+                                progress,
+                            },
+                        )
+                        .unwrap();
                 }
             }
         }
@@ -161,17 +174,17 @@ async fn execute_yt_dl<R: Runtime>(
     Ok(())
 }
 
-async fn update(app: tauri::AppHandle) -> Result<(), String> {
+async fn update(app: tauri::AppHandle) -> Result<()> {
     if let Some(update) = app
         .updater_builder()
         .on_before_exit(|| {
             println!("app is about to exit on Windows!");
         })
         .build()
-        .map_err(|_| String::from("Couldn't build updater"))?
+        .map_err(|_| YaydlError::UpdateError(UpdateError::BuildFailed))?
         .check()
         .await
-        .map_err(|_| String::from("Couldn't check updater"))?
+        .map_err(|_| YaydlError::UpdateError(UpdateError::CheckFailed))?
     {
         let mut downloaded = 0;
 
@@ -186,7 +199,7 @@ async fn update(app: tauri::AppHandle) -> Result<(), String> {
                 },
             )
             .await
-            .map_err(|_| String::from("Updater couldn't download and install"))?;
+            .map_err(|_| YaydlError::UpdateError(UpdateError::DownloadAndInstallFailed))?;
 
         println!("update installed");
         app.restart();

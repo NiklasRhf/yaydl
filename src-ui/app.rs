@@ -6,7 +6,10 @@ use leptos::*;
 use leptos_icons::Icon;
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
-use yaydl_shared::{Download, DownloadEvent, DownloadState, Metadata, MetadataArgs, Settings};
+use yaydl_shared::{
+    AddLinkError, Download, DownloadEvent, DownloadState, Metadata, MetadataArgs, Settings,
+    YaydlError,
+};
 
 #[wasm_bindgen]
 extern "C" {
@@ -198,7 +201,8 @@ pub fn MainContent() -> impl IntoView {
                         },
                     );
                     set_downloads.set(updated_downloads);
-                    let args = serde_wasm_bindgen::to_value(&MetadataArgs { url: &url, id: "" }).unwrap();
+                    let args =
+                        serde_wasm_bindgen::to_value(&MetadataArgs { url: &url, id: "" }).unwrap();
                     match invoke("retreive_metadata", args).await {
                         Ok(js_val) => {
                             let metadata = serde_wasm_bindgen::from_value(js_val).unwrap();
@@ -206,24 +210,39 @@ pub fn MainContent() -> impl IntoView {
                             let latest_download = &mut updated_downloads[0];
                             latest_download.metadata = metadata;
                             set_downloads.set(updated_downloads);
-                        },
+                        }
                         Err(js_val) => {
-                            let err: String = serde_wasm_bindgen::from_value(js_val).unwrap();
-                            let notification_context = use_context::<NotificationContext>().unwrap();
+                            let err: YaydlError = serde_wasm_bindgen::from_value(js_val).unwrap();
+                            let notification_context =
+                                use_context::<NotificationContext>().unwrap();
                             notification_context.add_notification(Notification {
-                                text: err,
+                                text: err.to_string(),
                                 notification_type: NotificationType::Error,
                             });
-                        },
+                        }
                     }
                 }
                 Err(err) => {
-                    let err: String = serde_wasm_bindgen::from_value(err.clone()).unwrap();
+                    let err: YaydlError = serde_wasm_bindgen::from_value(err.clone()).unwrap();
                     let notification_context = use_context::<NotificationContext>().unwrap();
-                    notification_context.add_notification(Notification {
-                        text: err,
-                        notification_type: NotificationType::Info,
-                    });
+
+                    let notification_type = if let YaydlError::AddLinkError(ref add_err) = err {
+                        Some(match add_err {
+                            AddLinkError::AlreadyAdded => NotificationType::Info,
+                            AddLinkError::NoValidLink => NotificationType::Warning,
+                            AddLinkError::ClipboardRead => NotificationType::Error,
+                        })
+                    } else {
+                        None
+                    };
+
+                    if let Some(notification) = notification_type {
+                        notification_context.add_notification(Notification {
+                            text: err.to_string(),
+                            notification_type: notification,
+                        });
+                    }
+
                 }
             }
         });
@@ -261,9 +280,19 @@ pub fn MainContent() -> impl IntoView {
                 .unwrap();
                 match invoke("execute_yt_dl", args).await {
                     Ok(_) => {
-                        update_download_state(download.metadata.id.clone(), DownloadState::Finished);
+                        update_download_state(
+                            download.metadata.id.clone(),
+                            DownloadState::Finished,
+                        );
                     }
-                    Err(_) => {
+                    Err(js_val) => {
+                        let err: YaydlError = serde_wasm_bindgen::from_value(js_val).unwrap();
+                        let notification_context =
+                            use_context::<NotificationContext>().unwrap();
+                        notification_context.add_notification(Notification {
+                            text: err.to_string(),
+                            notification_type: NotificationType::Error,
+                        });
                         update_download_state(download.metadata.id.clone(), DownloadState::Failure);
                     }
                 }
@@ -274,10 +303,10 @@ pub fn MainContent() -> impl IntoView {
     let open_explorer = move |_| {
         spawn_local(async move {
             if let Err(err) = invoke("open_explorer", JsValue::NULL).await {
-                let err = serde_wasm_bindgen::from_value::<String>(err).unwrap();
+                let err: YaydlError = serde_wasm_bindgen::from_value(err).unwrap();
                 let notification_context = use_context::<NotificationContext>().unwrap();
                 notification_context.add_notification(Notification {
-                    text: err,
+                    text: err.to_string(),
                     notification_type: NotificationType::Error,
                 });
             }
@@ -354,9 +383,19 @@ where
             .unwrap();
             match invoke("execute_yt_dl", args).await {
                 Ok(_) => {
-                    update_download_state(download_tmp.metadata.id.clone(), DownloadState::Finished);
+                    update_download_state(
+                        download_tmp.metadata.id.clone(),
+                        DownloadState::Finished,
+                    );
                 }
-                Err(_) => {
+                Err(js_val) => {
+                    let err: YaydlError = serde_wasm_bindgen::from_value(js_val).unwrap();
+                    let notification_context =
+                        use_context::<NotificationContext>().unwrap();
+                    notification_context.add_notification(Notification {
+                        text: err.to_string(),
+                        notification_type: NotificationType::Error,
+                    });
                     update_download_state(download_tmp.metadata.id.clone(), DownloadState::Failure);
                 }
             }
@@ -477,14 +516,15 @@ pub fn Settings() -> impl IntoView {
 
     let get_output_dir = move |_| {
         spawn_local(async move {
-            match invoke("choose_output_dir", JsValue::NULL).await {
-                Ok(js_val) => {
-                    let path = serde_wasm_bindgen::from_value(js_val).unwrap();
-                    set_output_dir.set(path);
-                }
-                Err(_) => {
-                    // TODO
-                }
+            if let Ok(js_val) = invoke("choose_output_dir", JsValue::NULL).await {
+                let notification_context =
+                    use_context::<NotificationContext>().unwrap();
+                let path = serde_wasm_bindgen::from_value(js_val).unwrap();
+                set_output_dir.set(path);
+                notification_context.add_notification(Notification {
+                    text: "Output directory updated successfully".into(),
+                    notification_type: NotificationType::Success,
+                });
             }
         });
     };

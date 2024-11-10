@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Settings {
@@ -44,4 +45,52 @@ pub enum DownloadState {
 pub struct DownloadEvent {
     pub id: String,
     pub progress: u8,
+}
+
+#[derive(Error, Serialize, Deserialize, Debug)]
+pub enum AddLinkError {
+    #[error("Video has already been added")]
+    AlreadyAdded,
+    #[error("Clipboard doesn't contain a valid link")]
+    NoValidLink,
+    #[error("Clipboard read error")]
+    ClipboardRead,
+}
+
+#[derive(Error, Serialize, Deserialize, Debug)]
+pub enum MetadataError {
+    #[error("Retreiving metadata failed")]
+    RetreivalFailed,
+    #[error("Metadata parsing failed")]
+    ParsingFailed,
+    #[error("Insufficient metadata fields")]
+    MissingFields,
+}
+
+#[derive(Error, Serialize, Deserialize, Debug)]
+pub enum UpdateError {
+    #[error("Checking for updates failed")]
+    CheckFailed,
+    #[error("Building updater failed")]
+    BuildFailed,
+    #[error("Downloading and installing updates failed")]
+    DownloadAndInstallFailed,
+}
+
+#[derive(Error, Serialize, Deserialize, Debug)]
+pub enum YaydlError {
+    #[error(transparent)]
+    AddLinkError(#[from] AddLinkError),
+    #[error("Shell error: {0}")]
+    TauriShellError(String),
+    #[error(transparent)]
+    MetadataError(#[from] MetadataError),
+    #[error(transparent)]
+    UpdateError(#[from] UpdateError),
+    #[error("Failed to convert output to UTF-8")]
+    Utf8Conversion,
+    #[error("Unsupported operating system")]
+    UnsupportedOs,
+    #[error("Folder selection failed")]
+    FolderSelectionFailed,
 }

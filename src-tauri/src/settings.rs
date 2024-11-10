@@ -1,7 +1,7 @@
 use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
-    path::PathBuf,
+    path::Path,
     sync::Mutex,
 };
 
@@ -9,15 +9,15 @@ use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::AppData;
-use yaydl_shared::Settings;
+use yaydl_shared::{Settings, YaydlError};
 
 pub trait Setup {
-    fn setup_settings(config_dir: &PathBuf) -> Self;
+    fn setup_settings(config_dir: &Path) -> Self;
     fn with_defaults() -> Self;
 }
 
 impl Setup for Settings {
-    fn setup_settings(config_dir: &PathBuf) -> Self {
+    fn setup_settings(config_dir: &Path) -> Self {
         fs::create_dir_all(config_dir).unwrap();
         let config_file = config_dir.join("settings.toml");
         if let Ok(mut file) = File::open(&config_file) {
@@ -52,9 +52,9 @@ pub fn get_settings(state: tauri::State<'_, Mutex<AppData>>) -> Settings {
 pub async fn choose_output_dir<R: Runtime>(
     app_handle: AppHandle<R>,
     state: tauri::State<'_, Mutex<AppData>>,
-) -> Result<String, String> {
+) -> Result<String, YaydlError> {
     let Some(path) = app_handle.dialog().file().blocking_pick_folder() else {
-        return Err("No folder selected".to_string());
+        return Err(YaydlError::FolderSelectionFailed);
     };
     path.as_path()
         .unwrap()
