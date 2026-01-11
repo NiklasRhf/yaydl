@@ -6,15 +6,21 @@ use leptos::*;
 use leptos_icons::Icon;
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::spawn_local;
 use yaydl_shared::{
-    AddLinkError, Download, DownloadEvent, DownloadState, Metadata, MetadataArgs, Settings,
-    YaydlError,
+    AddLinkError, Download, DownloadEvent, DownloadState, DownloadStateArgs, Metadata, MetadataArgs, Settings, YaydlError
 };
 
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"], catch)]
     async fn invoke(cmd: &str, args: JsValue) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"], js_name = invoke)]
+    async fn invoke_without_args(cmd: &str) -> JsValue;
+
+    #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"], js_name = invoke)]
+    async fn invoke_with_args(cmd: &str, args: JsValue) -> JsValue;
 
     #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "event"])]
     async fn listen(event: &str, handler: &js_sys::Function) -> JsValue;
@@ -40,7 +46,7 @@ enum EventType {
 #[component]
 pub fn SideBar<F>(set_main_state: F) -> impl IntoView
 where
-    F: Fn(MainState) + Clone + Copy + 'static,
+    F: Fn(MainState) + Copy + 'static,
 {
     view! {
         <div class="bg-blue-400 w-20 h-full flex flex-col items-center py-2">
@@ -89,127 +95,27 @@ pub enum MainState {
 }
 
 #[component()]
-pub fn MainContent() -> impl IntoView {
-    // TODO: remove me
-    // let download_dummy = Download {
-    //     metadata: Metadata {
-    //         url: "https://www.youtube.com/watch?v=cBSUf04SHYY".into(),
-    //         thumbnail: "https://i.ytimg.com/vi_webp/cBSUf04SHYY/maxresdefault.webp".into(),
-    //         duration: "1:00:00".into(),
-    //         title: "Utopia - Calming Ethereal Ambient Music - Deep Meditation and Relaxation"
-    //             .into(),
-    //         loading: false,
-    //         ..Default::default()
-    //     },
-    //     ..Default::default()
-    // };
-    // let download_dummy_2 = Download {
-    //     metadata: Metadata {
-    //         url: "".into(),
-    //         ..Default::default()
-    //     },
-    //     ..Default::default()
-    // };
-    // let download_dummy_3 = Download {
-    //     metadata: Metadata {
-    //         url: "https://www.youtube.com/watch?v=cBSUf04SHYY".into(),
-    //         thumbnail: "https://i.ytimg.com/vi_webp/cBSUf04SHYY/maxresdefault.webp".into(),
-    //         duration: "1:00:00".into(),
-    //         title: "Utopia - Calming Ethereal Ambient Music - Deep Meditation and Relaxation"
-    //             .into(),
-    //         loading: false,
-    //         ..Default::default()
-    //     },
-    //     download_state: DownloadState::Loading(69),
-    //     ..Default::default()
-    // };
-    // let download_dummy_4 = Download {
-    //     metadata: Metadata {
-    //         url: "1".into(),
-    //         ..Default::default()
-    //     },
-    //     download_state: DownloadState::Loading(0),
-    //     ..Default::default()
-    // };
-    // let download_dummy_4 = Download {
-    //     metadata: Metadata {
-    //         url: "1".into(),
-    //         ..Default::default()
-    //     },
-    //     download_state: DownloadState::Finished,
-    //     ..Default::default()
-    // };
-    // let download_dummy_5 = Download {
-    //     metadata: Metadata {
-    //         url: "1".into(),
-    //         ..Default::default()
-    //     },
-    //     download_state: DownloadState::Failure,
-    //     ..Default::default()
-    // };
-    // let download_dummy_6 = Download {
-    //     metadata: Metadata {
-    //         url: "1".into(),
-    //         ..Default::default()
-    //     },
-    //     download_state: DownloadState::Finished,
-    //     ..Default::default()
-    // };
-    // let download_dummy_7 = Download {
-    //     metadata: Metadata {
-    //         url: "1".into(),
-    //         ..Default::default()
-    //     },
-    //     download_state: DownloadState::Idle,
-    //     ..Default::default()
-    // };
-    // let download_dummy_8 = Download {
-    //     metadata: Metadata {
-    //         url: "1".into(),
-    //         ..Default::default()
-    //     },
-    //     download_state: DownloadState::Failure,
-    //     ..Default::default()
-    // };
-    let downloads = vec![
-        // download_dummy,
-        // download_dummy_2,
-        // download_dummy_3,
-        // download_dummy_4,
-        // download_dummy_5,
-        // download_dummy_6,
-        // download_dummy_7,
-        // download_dummy_8,
-    ];
-    let (downloads, set_downloads) = create_signal(downloads);
-
+pub fn MainContent<F>(downloads: RwSignal<Vec<Download>>, update_download_state: F) -> impl IntoView
+where
+    F: Fn(String, DownloadState) + Copy + 'static,
+{
     let add = move |_| {
         spawn_local(async move {
             match invoke("try_add", JsValue::NULL).await {
                 Ok(url) => {
-                    let url: String = serde_wasm_bindgen::from_value(url.clone()).unwrap();
-                    let mut updated_downloads = downloads.get_untracked();
-                    updated_downloads.insert(
-                        0,
-                        Download {
-                            metadata: Metadata {
-                                url: url.clone(),
-                                loading: true,
-                                ..Default::default()
-                            },
-                            ..Default::default()
-                        },
-                    );
-                    set_downloads.set(updated_downloads);
+                    let (url, dls): (String, Vec<Download>) =
+                        serde_wasm_bindgen::from_value(url.clone()).unwrap();
+                    downloads.set(dls);
                     let args =
                         serde_wasm_bindgen::to_value(&MetadataArgs { url: &url, id: "" }).unwrap();
+                    update_download_state(url.to_string(), DownloadState::MetadataLoading);
                     match invoke("retreive_metadata", args).await {
                         Ok(js_val) => {
-                            let metadata = serde_wasm_bindgen::from_value(js_val).unwrap();
+                            let metadata: Metadata = serde_wasm_bindgen::from_value(js_val).unwrap();
                             let mut updated_downloads = downloads.get_untracked().clone();
                             let latest_download = &mut updated_downloads[0];
                             latest_download.metadata = metadata;
-                            set_downloads.set(updated_downloads);
+                            downloads.set(updated_downloads);
                         }
                         Err(js_val) => {
                             let err: YaydlError = serde_wasm_bindgen::from_value(js_val).unwrap();
@@ -242,36 +148,22 @@ pub fn MainContent() -> impl IntoView {
                             notification_type: notification,
                         });
                     }
-
                 }
             }
         });
     };
 
     let clear = move |_| {
-        set_downloads.set(vec![]);
-        // TODO: clear backend list?
-    };
-
-    let update_download_state = move |id: String, state: DownloadState| {
-        let mut downloads = downloads.get_untracked().clone();
-        if let Some(download) = downloads.iter_mut().find(|d| d.metadata.id == id) {
-            download.download_state = state;
-        }
-        set_downloads.set(downloads);
+        spawn_local(async move {
+            invoke_without_args("clear_downloads").await;
+            downloads.set(vec![]);
+        });
     };
 
     let download_all = move |_| {
         let downloads = downloads.get_untracked();
         spawn_local(async move {
             for download in downloads {
-                // TODO: remove me
-                if download.metadata.url.is_empty()
-                    || download.metadata.url == "https://www.youtube.com/watch?v=cBSUf04SHYY"
-                    || download.download_state == DownloadState::Finished
-                {
-                    continue;
-                }
                 update_download_state(download.metadata.id.clone(), DownloadState::Loading(0));
                 let args = serde_wasm_bindgen::to_value(&MetadataArgs {
                     url: &download.metadata.url,
@@ -287,8 +179,7 @@ pub fn MainContent() -> impl IntoView {
                     }
                     Err(js_val) => {
                         let err: YaydlError = serde_wasm_bindgen::from_value(js_val).unwrap();
-                        let notification_context =
-                            use_context::<NotificationContext>().unwrap();
+                        let notification_context = use_context::<NotificationContext>().unwrap();
                         notification_context.add_notification(Notification {
                             text: err.to_string(),
                             notification_type: NotificationType::Error,
@@ -312,19 +203,6 @@ pub fn MainContent() -> impl IntoView {
             }
         });
     };
-
-    create_effect(move |_| {
-        let closure = Closure::<dyn FnMut(_)>::new(move |s: JsValue| {
-            let event: Event = serde_wasm_bindgen::from_value(s).unwrap();
-            if let EventType::Download(d_ev) = event.payload {
-                update_download_state(d_ev.id, DownloadState::Loading(d_ev.progress));
-            }
-        });
-        spawn_local(async move {
-            listen("download-progress", closure.as_ref().unchecked_ref()).await;
-            closure.forget();
-        });
-    });
 
     view! {
         <div class="flex items-center h-12 p-2 bg-gray-300 space-x-1">
@@ -390,8 +268,7 @@ where
                 }
                 Err(js_val) => {
                     let err: YaydlError = serde_wasm_bindgen::from_value(js_val).unwrap();
-                    let notification_context =
-                        use_context::<NotificationContext>().unwrap();
+                    let notification_context = use_context::<NotificationContext>().unwrap();
                     notification_context.add_notification(Notification {
                         text: err.to_string(),
                         notification_type: NotificationType::Error,
@@ -417,86 +294,73 @@ where
                     </div>
                 }.into_view()
             } else {
-                { if download.get_untracked().metadata.url.is_empty() {
-                    view! {
-                        <div class="animate-pulse space-x-4 rtl:space-x-reverse md:flex w-full">
-                            <div class="flex items-center justify-center w-24 h-12 bg-gray-400 rounded">
-                                <Icon icon=icondata::BiImageRegular class="h-8 w-8 text-gray-500" />
-                            </div>
-                            <div class="w-full flex flex-col justify-center">
-                                <div class="h-2.5 bg-gray-400 rounded-full w-10/12 mb-2.5"></div>
-                                <div class="h-2.5 bg-gray-400 rounded-full w-32 mb-2.5"></div>
-                            </div>
-                        </div>
-                    }.into_view()
-                } else {
-                    view! {
-                        <img
-                            src={&download.get_untracked().metadata.thumbnail}
-                            alt={&download.get_untracked().metadata.thumbnail}
-                            class="h-12 w-20 rounded shadow-sm"
-                        />
-                        <div class="w-full">
-                            <p class="line-clamp-1">{&download.get_untracked().metadata.title}</p>
-                            <p class="text-sm">{&download.get_untracked().metadata.duration}</p>
-                        </div>
-                        {move || {
-                            match download.get_untracked().download_state {
-                                DownloadState::Idle => {
-                                    view! {
-                                        <button on:click=download_f class="h-10 w-10">
-                                            <Icon icon=icondata::BiDownloadSolid class="h-full w-full text-gray-600 hover:text-gray-800"/>
-                                        </button>
-                                    }.into_view()
-                                }
-                                DownloadState::Loading(progress) => {
-                                    { if progress == 0 {
-                                        view! {
-                                            <Icon icon=icondata::CgSpinner class="w-10 h-10 animate-spin text-gray-600" />
-                                        }.into_view()
-                                    } else {
-                                        view! {
-                                            <div class="relative w-10 h-10">
-                                              <svg class="w-full h-full" viewBox="0 0 100 100">
-                                                <circle
-                                                  class="text-gray-400 stroke-current"
-                                                  stroke-width="15"
-                                                  cx="50"
-                                                  cy="50"
-                                                  r="40"
-                                                  fill="transparent"
-                                                ></circle>
-                                                <circle
-                                                  class="text-blue-500  progress-ring__circle stroke-current"
-                                                  stroke-width="15"
-                                                  stroke-linecap="round"
-                                                  cx="50"
-                                                  cy="50"
-                                                  r="40"
-                                                  fill="transparent"
-                                                  stroke-dasharray="251.2"
-                                                  stroke-dashoffset=format!("calc(251.2px - (251.2px * {progress}) / 100)")
-                                                ></circle>
-                                                <text x="50" y="50" font-size="26" text-anchor="middle" alignment-baseline="middle">{progress}%</text>
-                                              </svg>
-                                            </div>
-                                       }.into_view()
-                                    }}
-                                }
-                                DownloadState::Finished => {
-                                    view! {
-                                        <Icon icon=icondata::AiCheckCircleTwotone class="h-10 w-10 fill-green-600 stroke-green-600" style="stroke-width: 2%" />
-                                   }.into_view()
-                                }
-                                DownloadState::Failure => {
-                                    view! {
-                                        <Icon icon=icondata::BiErrorCircleRegular class="h-10 w-10 fill-red-600 stroke-red-600 stroke-[0.5px]" />
-                                   }.into_view()
-                                }
+                view! {
+                    <img
+                        src={&download.get_untracked().metadata.thumbnail}
+                        alt={&download.get_untracked().metadata.thumbnail}
+                        class="h-12 w-20 rounded shadow-sm"
+                    />
+                    <div class="w-full">
+                        <p class="line-clamp-1">{&download.get_untracked().metadata.title}</p>
+                        <p class="text-sm">{&download.get_untracked().metadata.duration}</p>
+                    </div>
+                    {move || {
+                        match download.get_untracked().download_state {
+                            DownloadState::Idle => {
+                                view! {
+                                    <button on:click=download_f class="h-10 w-10">
+                                        <Icon icon=icondata::BiDownloadSolid class="h-full w-full text-gray-600 hover:text-gray-800"/>
+                                    </button>
+                                }.into_view()
                             }
-                        }}
-                    }.into_view()
-                }}
+                            DownloadState::Loading(progress) => {
+                                { if progress == 0 {
+                                    view! {
+                                        <Icon icon=icondata::CgSpinner class="w-10 h-10 animate-spin text-gray-600" />
+                                    }.into_view()
+                                } else {
+                                    view! {
+                                        <div class="relative w-10 h-10">
+                                          <svg class="w-full h-full" viewBox="0 0 100 100">
+                                            <circle
+                                              class="text-gray-400 stroke-current"
+                                              stroke-width="15"
+                                              cx="50"
+                                              cy="50"
+                                              r="40"
+                                              fill="transparent"
+                                            ></circle>
+                                            <circle
+                                              class="text-blue-500  progress-ring__circle stroke-current"
+                                              stroke-width="15"
+                                              stroke-linecap="round"
+                                              cx="50"
+                                              cy="50"
+                                              r="40"
+                                              fill="transparent"
+                                              stroke-dasharray="251.2"
+                                              stroke-dashoffset=format!("calc(251.2px - (251.2px * {progress}) / 100)")
+                                            ></circle>
+                                            <text x="50" y="50" font-size="26" text-anchor="middle" alignment-baseline="middle">{progress}%</text>
+                                          </svg>
+                                        </div>
+                                   }.into_view()
+                                }}
+                            }
+                            DownloadState::Finished => {
+                                view! {
+                                    <Icon icon=icondata::AiCheckCircleTwotone class="h-10 w-10 fill-green-600 stroke-green-600" style="stroke-width: 2%" />
+                               }.into_view()
+                            }
+                            DownloadState::Failure => {
+                                view! {
+                                    <Icon icon=icondata::BiErrorCircleRegular class="h-10 w-10 fill-red-600 stroke-red-600 stroke-[0.5px]" />
+                               }.into_view()
+                            }
+                            _ => {}.into_view()
+                        }
+                    }}
+                }.into_view()
             }}
         </div>
     }
@@ -517,8 +381,7 @@ pub fn Settings() -> impl IntoView {
     let get_output_dir = move |_| {
         spawn_local(async move {
             if let Ok(js_val) = invoke("choose_output_dir", JsValue::NULL).await {
-                let notification_context =
-                    use_context::<NotificationContext>().unwrap();
+                let notification_context = use_context::<NotificationContext>().unwrap();
                 let path = serde_wasm_bindgen::from_value(js_val).unwrap();
                 set_output_dir.set(path);
                 notification_context.add_notification(Notification {
@@ -561,11 +424,46 @@ pub fn Statistics() -> impl IntoView {
 #[component]
 pub fn App() -> impl IntoView {
     let (state, set_state) = create_signal(MainState::Download);
+    let downloads = create_rw_signal(vec![]);
     let _ = provide_notification_context();
 
     let set_main_state = move |state: MainState| {
         set_state.set(state);
     };
+
+    let update_download_state = move |id: String, state: DownloadState| {
+        spawn_local(async move {
+            let args = serde_wasm_bindgen::to_value(&DownloadStateArgs {
+                id: id.clone(),
+                state: state.clone(),
+            })
+            .unwrap();
+            invoke_with_args("update_download", args).await;
+            let mut dls: Vec<Download> = downloads.get_untracked().clone();
+            if let Some(download) = dls.iter_mut().find(|d| d.metadata.id == id || d.metadata.url == id) {
+                if let DownloadState::MetadataLoading = state {
+                    download.metadata.loading = !download.metadata.loading;
+                } else {
+                    download.download_state = state;
+                }
+            }
+            downloads.set(dls);
+        });
+    };
+
+    create_effect(move |_| {
+        let closure = Closure::<dyn FnMut(_)>::new(move |s: JsValue| {
+            let event: Event = serde_wasm_bindgen::from_value(s).unwrap();
+            if let EventType::Download(d_ev) = event.payload {
+                update_download_state(d_ev.id, DownloadState::Loading(d_ev.progress));
+            }
+        });
+        spawn_local(async move {
+            listen("download-progress", closure.as_ref().unchecked_ref()).await;
+            closure.forget();
+        });
+    });
+
     view! {
         <main class="h-screen bg-gray-200 flex">
             <SideBar set_main_state />
@@ -581,7 +479,7 @@ pub fn App() -> impl IntoView {
                         </h1>
                     </div>
                     { move || match state.get() {
-                        MainState::Download => view! { <MainContent /> }.into_view(),
+                        MainState::Download => view! { <MainContent downloads update_download_state /> }.into_view(),
                         MainState::Statistics => view! { <Statistics /> }.into_view(),
                         MainState::Settings => view! { <Settings /> }.into_view(),
                     }}

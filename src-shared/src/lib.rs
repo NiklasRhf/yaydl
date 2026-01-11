@@ -26,19 +26,32 @@ pub struct MetadataArgs<'a> {
     pub id: &'a str,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Serialize, Deserialize)]
+pub struct DownloadStateArgs {
+    pub id: String,
+    pub state: DownloadState,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Download {
     pub metadata: Metadata,
     pub download_state: DownloadState,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+impl PartialEq for Download {
+    fn eq(&self, other: &Self) -> bool {
+        self.metadata.url == other.metadata.url
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub enum DownloadState {
     #[default]
     Idle,
     Loading(u8),
     Finished,
     Failure,
+    MetadataLoading,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

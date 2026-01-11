@@ -6,12 +6,14 @@ use tauri_plugin_shell::ShellExt;
 mod settings;
 use settings::Setup;
 use tauri_plugin_updater::UpdaterExt;
-use yaydl_shared::{AddLinkError, DownloadEvent, Metadata, MetadataError, Settings, UpdateError, YaydlError};
+use yaydl_shared::{
+    AddLinkError, Download, DownloadEvent, DownloadState, Metadata, MetadataError, Settings, UpdateError, YaydlError
+};
 
 type Result<T> = std::result::Result<T, YaydlError>;
 
 pub struct AppData {
-    download_list: Vec<String>,
+    download_list: Vec<Download>,
     settings: Settings,
 }
 
@@ -25,16 +27,53 @@ impl Default for AppData {
 }
 
 #[tauri::command]
-async fn try_add<R: Runtime>(app_handle: AppHandle<R>) -> Result<String> {
+async fn get_downloads<R: Runtime>(app_handle: tauri::AppHandle<R>) -> Vec<Download> {
+    app_handle
+        .state::<Mutex<AppData>>()
+        .lock()
+        .unwrap()
+        .download_list
+        .clone()
+}
+
+#[tauri::command]
+async fn clear_downloads<R: Runtime>(app_handle: tauri::AppHandle<R>) {
+    app_handle
+        .state::<Mutex<AppData>>()
+        .lock()
+        .unwrap()
+        .download_list.clear();
+}
+
+#[tauri::command]
+async fn update_download<R: Runtime>(app_handle: tauri::AppHandle<R>, id: String, state: DownloadState) {
+    if let Some(download) = app_handle
+        .state::<Mutex<AppData>>()
+        .lock()
+        .unwrap()
+        .download_list.iter_mut().find(|d| d.metadata.id == id) {
+        download.download_state = state;
+    }
+}
+
+#[tauri::command]
+async fn try_add<R: Runtime>(app_handle: AppHandle<R>) -> Result<(String, Vec<Download>)> {
     let content = app_handle.clipboard().read_text();
     let state = app_handle.state::<Mutex<AppData>>();
     match content {
-        Ok(text) if text.contains("https://www.youtube.com/") => {
+        Ok(url) if url.contains("https://www.youtube.com/") => {
+            let download = Download {
+                metadata: Metadata {
+                    url: url.clone(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
             let mut state = state.lock().unwrap();
-            let contains = state.download_list.contains(&text);
+            let contains = state.download_list.contains(&download);
             if !contains {
-                state.download_list.push(text.clone());
-                Ok(text)
+                state.download_list.insert(0, download);
+                Ok((url, state.download_list.clone()))
             } else {
                 Err(YaydlError::AddLinkError(AddLinkError::AlreadyAdded))
             }
@@ -70,13 +109,8 @@ fn open_explorer<R: Runtime>(
     Ok(())
 }
 
-// type Result<T> = std::result::Result<T>;
-
 #[tauri::command]
-async fn retreive_metadata<R: Runtime>(
-    url: &str,
-    app_handle: AppHandle<R>,
-) -> Result<Metadata> {
+async fn retreive_metadata<R: Runtime>(url: &str, app_handle: AppHandle<R>) -> Result<Metadata> {
     let shell = app_handle.shell();
     let output = shell
         .sidecar("yt-dlp")
@@ -97,22 +131,34 @@ async fn retreive_metadata<R: Runtime>(
         return Err(YaydlError::MetadataError(MetadataError::RetreivalFailed));
     }
 
-    let output_str = std::str::from_utf8(&output.stdout)
-        .map_err(|_| YaydlError::Utf8Conversion)?;
+    let output_str = std::str::from_utf8(&output.stdout).map_err(|_| YaydlError::Utf8Conversion)?;
     let metadata: Vec<&str> = output_str.split("\n\n").collect();
 
     if metadata.len() < 4 {
         return Err(YaydlError::MetadataError(MetadataError::MissingFields));
     }
 
-    Ok(Metadata {
+    let metadata = Metadata {
         title: metadata[0].to_string(),
         id: metadata[1].to_string(),
         thumbnail: metadata[2].to_string(),
         duration: metadata[3].to_string(),
         url: url.to_string(),
         loading: false,
-    })
+    };
+
+    if let Some(d) = app_handle
+        .state::<Mutex<AppData>>()
+        .lock()
+        .unwrap()
+        .download_list
+        .iter_mut()
+        .find(|d| d.metadata.url == metadata.url)
+    {
+        d.metadata = metadata.clone();
+    }
+
+    Ok(metadata)
 }
 
 #[tauri::command]
@@ -235,6 +281,9 @@ pub fn run() {
             try_add,
             retreive_metadata,
             open_explorer,
+            get_downloads,
+            clear_downloads,
+            update_download,
             settings::choose_output_dir,
             settings::set_output_format,
             settings::set_dark_theme,
