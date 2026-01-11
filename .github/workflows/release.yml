@@ -43,7 +43,7 @@ jobs:
       - name: Add Cargo bin to PATH (Windows)
         if: runner.os == 'Windows'
         run: |
-          echo "$env:USERPROFILE\.cargo\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "$env:CARGO_HOME\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Check trunk
         run: trunk --version
       - uses: tauri-apps/tauri-action@v0
