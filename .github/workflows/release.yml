@@ -40,6 +40,10 @@ jobs:
         run: curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
       - name: Install Trunk
         run: cargo binstall -y trunk
+      - name: Add Cargo bin to PATH (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          echo "$env:USERPROFILE\.cargo\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Check trunk
         run: trunk --version
       - uses: tauri-apps/tauri-action@v0
