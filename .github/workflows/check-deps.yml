@@ -42,6 +42,6 @@ jobs:
          git stash pop || true
          chmod +x scripts/bump-version.sh
          ./scripts/bump-version.sh
-         git add src-shared/yt-dlp-version.txt Cargo.toml src-shared/Cargo.toml src-tauri/Cargo.toml src-tauri/tauri.conf.json
+         git add -u
          git commit -m "chore: update yt-dlp version to ${{ steps.yt-dlp.outputs.latest }} and bump version"
-         git push origin release
+         git push https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }} release
