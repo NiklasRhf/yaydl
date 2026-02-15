@@ -14,3 +14,9 @@ sed -i "s/^version = \"$CURRENT\"/version = \"$NEW_VERSION\"/" Cargo.toml
 sed -i "s/^version = \"$CURRENT\"/version = \"$NEW_VERSION\"/" src-shared/Cargo.toml
 sed -i "s/^version = \"$CURRENT\"/version = \"$NEW_VERSION\"/" src-tauri/Cargo.toml
 sed -i "s/\"version\": \"$CURRENT\"/\"version\": \"$NEW_VERSION\"/" src-tauri/tauri.conf.json
+<<<<<<< HEAD
+=======
+
+git add Cargo.toml src-shared/Cargo.toml src-tauri/Cargo.toml src-tauri/tauri.conf.json
+git commit -m "chore: bump version to $NEW_VERSION"
+>>>>>>> b80c275 (ci: automate semver patch bump and integrate into update workflow)
