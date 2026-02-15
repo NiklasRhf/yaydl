@@ -1,0 +1,41 @@
+name: Check Dependencies
+on:
+  schedule:
+    - cron: '0 3 * * *'  # Daily at 3 AM UTC
+  workflow_dispatch:  # Manual trigger for testing
+
+jobs:
+  check-versions:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch latest yt-dlp release
+        id: yt-dlp
+        run: |
+          LATEST=$(curl -s https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest | jq -r '.name')
+          echo "Latest yt-dlp release: $LATEST"
+          echo "latest=$LATEST" >> $GITHUB_OUTPUT
+      - name: Fetch current yt-dlp version
+        id: current
+        run: |
+          # Replace this with your actual version detection logic
+          CURRENT=$(cat src-shared/yt-dlp-version.txt 2>/dev/null || echo "none")
+          echo "Current yt-dlp version: $CURRENT"
+          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+      - name: Compare versions and create PR if needed
+        if: steps.yt-dlp.outputs.latest != steps.current.outputs.current
+        run: |
+          echo "New yt-dlp version detected!"
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          echo "${{ steps.yt-dlp.outputs.latest }}" > src-shared/yt-dlp-version.txt
+          git checkout -b update-yt-dlp-version
+          git add src-shared/yt-dlp-version.txt
+          git commit -m "chore: update yt-dlp version to ${{ steps.yt-dlp.outputs.latest }}"
+          git push origin update-yt-dlp-version
+          gh pr create --title "chore: update yt-dlp version to ${{ steps.yt-dlp.outputs.latest }}" --body "Automated version bump." --base release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
