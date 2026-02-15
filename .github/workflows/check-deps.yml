@@ -28,7 +28,7 @@ jobs:
           CURRENT=$(cat src-shared/yt-dlp-version.txt 2>/dev/null || echo "none")
           echo "Current yt-dlp version: $CURRENT"
           echo "current=$CURRENT" >> $GITHUB_OUTPUT
-      - name: Compare versions and create PR if needed
+      - name: Compare versions and update
         if: steps.yt-dlp.outputs.latest != steps.current.outputs.current
         run: |
           echo "New yt-dlp version detected!"
@@ -42,4 +42,14 @@ jobs:
           git stash pop || true
           git add src-shared/yt-dlp-version.txt
           git commit -m "chore: update yt-dlp version to ${{ steps.yt-dlp.outputs.latest }}"
+
+      - name: Bump patch version
+        if: steps.yt-dlp.outputs.latest != steps.current.outputs.current
+        run: |
+          chmod +x scripts/bump-version.sh
+          ./scripts/bump-version.sh
+
+      - name: Push changes to release branch
+        if: steps.yt-dlp.outputs.latest != steps.current.outputs.current
+        run: |
           git push origin release
