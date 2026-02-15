@@ -36,8 +36,10 @@ jobs:
           git config user.email github-actions@github.com
           echo "${{ steps.yt-dlp.outputs.latest }}" > src-shared/yt-dlp-version.txt
           git fetch origin release:release
+          git stash
           git checkout release
           git pull origin release
+          git stash pop || true
           git add src-shared/yt-dlp-version.txt
           git commit -m "chore: update yt-dlp version to ${{ steps.yt-dlp.outputs.latest }}"
           git push origin release
