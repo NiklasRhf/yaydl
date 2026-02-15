@@ -20,12 +20,12 @@ jobs:
           LATEST=$(curl -s https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest | jq -r '.name')
           echo "Latest yt-dlp release: $LATEST"
           echo "latest=$LATEST" >> $GITHUB_OUTPUT
-      - name: Fetch current yt-dlp version
+      - name: Fetch current yt-dlp version from release branch
         id: current
         run: |
-          # Replace this with your actual version detection logic
-          CURRENT=$(cat src-shared/yt-dlp-version.txt 2>/dev/null || echo "none")
-          echo "Current yt-dlp version: $CURRENT"
+          git fetch origin release:release
+          CURRENT=$(git show release:src-shared/yt-dlp-version.txt 2>/dev/null || echo "none")
+          echo "Current yt-dlp version on release branch: $CURRENT"
           echo "current=$CURRENT" >> $GITHUB_OUTPUT
       - name: Update yt-dlp and bump version
         if: steps.yt-dlp.outputs.latest != steps.current.outputs.current
