@@ -220,37 +220,59 @@ async fn execute_yt_dl<R: Runtime>(
     Ok(())
 }
 
-async fn update(app: tauri::AppHandle) -> Result<()> {
+#[tauri::command]
+async fn check_update<R: Runtime>(app: tauri::AppHandle<R>) -> Result<bool> {
+    // Simulate update if env var is set
+    if std::env::var("YAYDL_SIMULATE_UPDATE").ok().as_deref() == Some("1") {
+        return Ok(true);
+    }
+    let update = app
+        .updater_builder()
+        .build()
+        .map_err(|_| YaydlError::UpdateError(UpdateError::BuildFailed))?
+        .check()
+        .await
+        .map_err(|_| YaydlError::UpdateError(UpdateError::CheckFailed))?;
+    Ok(update.is_some())
+}
+
+#[tauri::command]
+async fn start_update<R: Runtime>(app: tauri::AppHandle<R>) -> Result<()> {
+    // Simulate update if env var is set
+    if std::env::var("YAYDL_SIMULATE_UPDATE").ok().as_deref() == Some("1") {
+        for percent in (0..=100).step_by(10) {
+            let _ = app.emit("update-progress", percent);
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        let _ = app.emit("update-finished", ());
+        return Ok(());
+    }
     if let Some(update) = app
         .updater_builder()
-        .on_before_exit(|| {
-            println!("app is about to exit on Windows!");
-        })
         .build()
         .map_err(|_| YaydlError::UpdateError(UpdateError::BuildFailed))?
         .check()
         .await
         .map_err(|_| YaydlError::UpdateError(UpdateError::CheckFailed))?
     {
-        let mut downloaded = 0;
-
+        let mut downloaded = 0u64;
+        let mut total = 0u64;
         update
             .download_and_install(
                 |chunk_length, content_length| {
-                    downloaded += chunk_length;
-                    println!("downloaded {downloaded} from {content_length:?}");
+                    downloaded += chunk_length as u64;
+                    total = content_length.unwrap_or(0) as u64;
+                    let percent = if total > 0 { (downloaded * 100 / total) as u8 } else { 0 };
+                    let _ = app.emit("update-progress", percent);
                 },
                 || {
-                    println!("download finished");
+                    let _ = app.emit("update-finished", ());
                 },
             )
             .await
             .map_err(|_| YaydlError::UpdateError(UpdateError::DownloadAndInstallFailed))?;
-
-        println!("update installed");
         app.restart();
     }
-
     Ok(())
 }
 
@@ -261,7 +283,7 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = update(handle).await {
+                if let Err(e) = check_update(handle).await {
                     println!("{}", e);
                 }
             });
@@ -284,6 +306,8 @@ pub fn run() {
             get_downloads,
             clear_downloads,
             update_download,
+            check_update,
+            start_update,
             settings::choose_output_dir,
             settings::set_output_format,
             settings::set_dark_theme,

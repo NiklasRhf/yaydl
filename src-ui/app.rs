@@ -2,6 +2,8 @@ use crate::notification::{
     provide_notification_context, Notification, NotificationContext, NotificationList,
     NotificationType,
 };
+use crate::update_modal::UpdateModal;
+use crate::update_context::provide_update_context;
 use leptos::*;
 use leptos_icons::Icon;
 use serde::Deserialize;
@@ -10,22 +12,17 @@ use wasm_bindgen_futures::spawn_local;
 use yaydl_shared::{
     AddLinkError, Download, DownloadEvent, DownloadState, DownloadStateArgs, Metadata, MetadataArgs, Settings, YaydlError
 };
-
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"], catch)]
     async fn invoke(cmd: &str, args: JsValue) -> Result<JsValue, JsValue>;
-
     #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"], js_name = invoke)]
     async fn invoke_without_args(cmd: &str) -> JsValue;
-
     #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"], js_name = invoke)]
     async fn invoke_with_args(cmd: &str, args: JsValue) -> JsValue;
-
     #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "event"])]
     async fn listen(event: &str, handler: &js_sys::Function) -> JsValue;
 }
-
 #[derive(Debug, Deserialize)]
 struct Event {
     #[allow(dead_code)]
@@ -34,7 +31,6 @@ struct Event {
     event: String,
     payload: EventType,
 }
-
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum EventType {
@@ -42,7 +38,6 @@ enum EventType {
     #[allow(dead_code)]
     SomethingOtherEvent,
 }
-
 #[component]
 pub fn SideBar<F>(set_main_state: F) -> impl IntoView
 where
@@ -85,7 +80,6 @@ where
         </div>
     }
 }
-
 #[derive(Clone)]
 pub enum MainState {
     Settings,
@@ -93,7 +87,6 @@ pub enum MainState {
     #[allow(dead_code)]
     Statistics,
 }
-
 #[component()]
 pub fn MainContent<F>(downloads: RwSignal<Vec<Download>>, update_download_state: F) -> impl IntoView
 where
@@ -131,7 +124,6 @@ where
                 Err(err) => {
                     let err: YaydlError = serde_wasm_bindgen::from_value(err.clone()).unwrap();
                     let notification_context = use_context::<NotificationContext>().unwrap();
-
                     let notification_type = if let YaydlError::AddLinkError(ref add_err) = err {
                         Some(match add_err {
                             AddLinkError::AlreadyAdded => NotificationType::Info,
@@ -141,7 +133,6 @@ where
                     } else {
                         None
                     };
-
                     if let Some(notification) = notification_type {
                         notification_context.add_notification(Notification {
                             text: err.to_string(),
@@ -152,14 +143,12 @@ where
             }
         });
     };
-
     let clear = move |_| {
         spawn_local(async move {
             invoke_without_args("clear_downloads").await;
             downloads.set(vec![]);
         });
     };
-
     let download_all = move |_| {
         let downloads = downloads.get_untracked();
         spawn_local(async move {
@@ -190,7 +179,6 @@ where
             }
         });
     };
-
     let open_explorer = move |_| {
         spawn_local(async move {
             if let Err(err) = invoke("open_explorer", JsValue::NULL).await {
@@ -203,7 +191,6 @@ where
             }
         });
     };
-
     view! {
         <div class="flex items-center h-12 p-2 bg-gray-300 space-x-1">
             // <div class="relative inline-block border-b border-dotted border-black tooltip">
@@ -213,7 +200,6 @@ where
             //     <span class="absolute top-full left-1/2 transform -translate-x-1/2 -mt-px border-[5px] border-transparent border-t-gray-700"></span>
             //   </span>
             // </div>
-
             <button>
                 <Icon on:click=add icon=icondata::AiPlusSquareOutlined class="h-8 w-8 fill-gray-500 hover:fill-gray-600"/>
             </button>
@@ -242,14 +228,12 @@ where
         </div>
     }
 }
-
 #[component]
 pub fn Download<F>(d: Download, update_download_state: F) -> impl IntoView
 where
     F: Fn(String, DownloadState) + Clone + Copy + 'static,
 {
     let (download, _set_download) = create_signal(d);
-
     let download_f = move |_| {
         let download_tmp = download.get().clone();
         update_download_state(download_tmp.metadata.id.clone(), DownloadState::Loading(0));
@@ -278,7 +262,6 @@ where
             }
         });
     };
-
     view! {
         <div class="flex h-16 rounded border-2 border-gray-400 mb-2 space-x-4 items-center px-1 shadow-md">
             { if download.get_untracked().metadata.loading {
@@ -365,7 +348,6 @@ where
         </div>
     }
 }
-
 #[component]
 pub fn Settings() -> impl IntoView {
     let (output_dir, set_output_dir) = create_signal(String::new());
@@ -377,7 +359,6 @@ pub fn Settings() -> impl IntoView {
             }
         });
     });
-
     let get_output_dir = move |_| {
         spawn_local(async move {
             if let Ok(js_val) = invoke("choose_output_dir", JsValue::NULL).await {
@@ -391,7 +372,6 @@ pub fn Settings() -> impl IntoView {
             }
         });
     };
-
     view! {
         <div class="flex items-center justify-center h-12 p-2 bg-gray-300">
         </div>
@@ -408,7 +388,6 @@ pub fn Settings() -> impl IntoView {
         </div>
     }
 }
-
 #[component]
 pub fn Statistics() -> impl IntoView {
     view! {
@@ -420,17 +399,55 @@ pub fn Statistics() -> impl IntoView {
         </div>
     }
 }
-
 #[component]
 pub fn App() -> impl IntoView {
     let (state, set_state) = create_signal(MainState::Download);
     let downloads = create_rw_signal(vec![]);
     let _ = provide_notification_context();
-
+    let update_context = provide_update_context();
+    let update_context2 = update_context.clone();
+    let update_context3 = update_context.clone();
+    let (show_update, set_show_update) = create_signal(update_context.state.get().show);
+    let (update_progress, set_update_progress) = create_signal(update_context.state.get().progress);
+    create_effect(move |_| {
+        set_show_update.set(update_context.state.get().show);
+        set_update_progress.set(update_context.state.get().progress);
+    });
+    // Listen for update events from backend
+    create_effect(move |_| {
+        let update_context = update_context2.clone();
+        let closure = Closure::<dyn FnMut(_)>::new(move |percent: JsValue| {
+            let percent: u8 = serde_wasm_bindgen::from_value(percent).unwrap_or(0);
+            update_context.state.update(|s| {
+                s.progress = Some(percent);
+            });
+        });
+        let finished_closure = Closure::<dyn FnMut(JsValue)>::new(move |_| {
+            update_context.state.update(|s| {
+                s.progress = Some(100);
+            });
+        });
+        spawn_local(async move {
+            listen("update-progress", closure.as_ref().unchecked_ref()).await;
+            listen("update-finished", finished_closure.as_ref().unchecked_ref()).await;
+            closure.forget();
+            finished_closure.forget();
+        });
+    });
+    // On mount, check for update
+    create_effect(move |_| {
+        let update_context = update_context3.clone();
+        spawn_local(async move {
+            let has_update = invoke_without_args("check_update").await;
+            let has_update: bool = serde_wasm_bindgen::from_value(has_update).unwrap_or(false);
+            if has_update {
+                update_context.state.update(|s| s.show = true);
+            }
+        });
+    });
     let set_main_state = move |state: MainState| {
         set_state.set(state);
     };
-
     let update_download_state = move |id: String, state: DownloadState| {
         spawn_local(async move {
             let args = serde_wasm_bindgen::to_value(&DownloadStateArgs {
@@ -450,7 +467,6 @@ pub fn App() -> impl IntoView {
             downloads.set(dls);
         });
     };
-
     create_effect(move |_| {
         let closure = Closure::<dyn FnMut(_)>::new(move |s: JsValue| {
             let event: Event = serde_wasm_bindgen::from_value(s).unwrap();
@@ -463,7 +479,6 @@ pub fn App() -> impl IntoView {
             closure.forget();
         });
     });
-
     view! {
         <main class="h-screen bg-gray-200 flex">
             <SideBar set_main_state />
@@ -485,6 +500,22 @@ pub fn App() -> impl IntoView {
                     }}
                 </div>
             </div>
+            <UpdateModal
+                show=show_update.into()
+                progress=update_progress.into()
+                on_update=Callback::new(move |_| {
+                    let update_context = update_context.clone();
+                    update_context.state.update(|s| s.progress = Some(0));
+                    spawn_local(async move {
+                        let _ = invoke_without_args("start_update").await;
+                    });
+                })
+                on_quit=Callback::new(move |_| {
+                    spawn_local(async move {
+                        invoke_without_args("quit_app").await;
+                    });
+                })
+            />
             <NotificationList />
         </main>
     }
