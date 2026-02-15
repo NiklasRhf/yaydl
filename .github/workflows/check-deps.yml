@@ -15,6 +15,8 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT }}
       - name: Fetch latest yt-dlp release
         id: yt-dlp
         run: |
@@ -32,8 +34,8 @@ jobs:
         if: steps.yt-dlp.outputs.latest != steps.current.outputs.current
         run: |
           echo "New yt-dlp version detected!"
-          git config user.name "NiklasRhf"
-          git config user.email "65732627+niklasrhf@users.noreply.github.com"
+          git config user.name "yaydl-bot"
+          git config user.email "yaydl-bot@users.noreply.github.com"
           echo "${{ steps.yt-dlp.outputs.latest }}" > src-shared/yt-dlp-version.txt
           git fetch origin release:release
           git stash
@@ -44,9 +46,4 @@ jobs:
           ./scripts/bump-version.sh
           git add -u
           git commit -m "chore: update yt-dlp version to ${{ steps.yt-dlp.outputs.latest }} and bump version"
-          git push https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }} release
-          curl -X POST \
-            -H "Authorization: token ${{ secrets.PAT }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/${{ github.repository }}/dispatches \
-            -d '{"event_type":"custom-event"}'
+          git push origin release
