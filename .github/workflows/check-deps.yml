@@ -35,6 +35,7 @@ jobs:
           git config user.name github-actions
           git config user.email github-actions@github.com
           echo "${{ steps.yt-dlp.outputs.latest }}" > src-shared/yt-dlp-version.txt
+          git fetch origin release:release
           git checkout release
           git pull origin release
           git add src-shared/yt-dlp-version.txt
