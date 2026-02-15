@@ -35,10 +35,8 @@ jobs:
           git config user.name github-actions
           git config user.email github-actions@github.com
           echo "${{ steps.yt-dlp.outputs.latest }}" > src-shared/yt-dlp-version.txt
-          git checkout -b update-yt-dlp-version
+          git checkout release
+          git pull origin release
           git add src-shared/yt-dlp-version.txt
           git commit -m "chore: update yt-dlp version to ${{ steps.yt-dlp.outputs.latest }}"
-          git push origin update-yt-dlp-version
-          gh pr create --title "chore: update yt-dlp version to ${{ steps.yt-dlp.outputs.latest }}" --body "Automated version bump." --base release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          git push origin release
