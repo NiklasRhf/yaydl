@@ -32,8 +32,8 @@ jobs:
         if: steps.yt-dlp.outputs.latest != steps.current.outputs.current
         run: |
          echo "New yt-dlp version detected!"
-         git config user.name github-actions
-         git config user.email github-actions@github.com
+         git config user.name "NiklasRhf"
+         git config user.email "65732627+niklasrhf@users.noreply.github.com"
          echo "${{ steps.yt-dlp.outputs.latest }}" > src-shared/yt-dlp-version.txt
          git fetch origin release:release
          git stash
