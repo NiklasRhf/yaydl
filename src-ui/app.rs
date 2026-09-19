@@ -438,7 +438,7 @@ where
                                     <Icon icon=icondata::BiErrorCircleRegular class="h-10 w-10 fill-red-600 stroke-red-600 stroke-[0.5px]" />
                                }.into_view()
                             }
-                            _ => {}.into_view()
+                            _ => ().into_view()
                         }
                     }}
                 }.into_view()
@@ -798,8 +798,8 @@ pub fn App() -> impl IntoView {
                 </div>
             </div>
             <UpdateModal
-                show=show_update.into()
-                progress=update_progress.into()
+                show=show_update
+                progress=update_progress
                 on_update=Callback::new(move |_| {
                     let update_context = update_context.clone();
                     update_context.state.update(|s| s.progress = Some(0));
