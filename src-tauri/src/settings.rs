@@ -7,9 +7,10 @@ use std::{
 
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_dialog::DialogExt;
+use tracing::info;
 
 use crate::AppData;
-use yaydl_shared::{Settings, YaydlError};
+use yaydl_shared::{Settings, YaydlError, YtDlpChannel};
 
 pub trait Setup {
     fn setup_settings(config_dir: &Path) -> Self;
@@ -20,18 +21,19 @@ impl Setup for Settings {
     fn setup_settings(config_dir: &Path) -> Self {
         fs::create_dir_all(config_dir).unwrap();
         let config_file = config_dir.join("settings.toml");
-        if let Ok(mut file) = File::open(&config_file) {
+        let settings = if let Ok(mut file) = File::open(&config_file) {
             let mut buffer = String::new();
             file.read_to_string(&mut buffer).expect("to read to string");
-            let settings: Settings = toml::from_str(&buffer).expect("to read toml file");
-            settings
+            toml::from_str(&buffer).expect("to read toml file")
         } else {
-            let mut file = File::create(&config_file).expect("to create file");
-            let settings = Self::with_defaults();
-            file.write_all(toml::to_string(&settings).expect("to serialize").as_bytes())
-                .expect("to write to file");
-            settings
-        }
+            Self::with_defaults()
+        };
+        // Fields that serde filled from their default are written back, so a file
+        // written by an older version describes the current runtime behaviour.
+        let mut file = File::create(&config_file).expect("to create file");
+        file.write_all(toml::to_string(&settings).expect("to serialize").as_bytes())
+            .expect("to write to file");
+        settings
     }
 
     fn with_defaults() -> Self {
@@ -39,6 +41,7 @@ impl Setup for Settings {
             output_dir: dirs::audio_dir().unwrap(),
             output_format: String::from("mp3"),
             dark_theme: true,
+            yt_dlp_channel: YtDlpChannel::default(),
         }
     }
 }
@@ -72,6 +75,19 @@ pub fn set_output_format<R: Runtime>(
 ) -> bool {
     state.lock().unwrap().settings.output_format = value.into();
     update_settings(&app_handle, &state)
+}
+
+#[tauri::command]
+pub fn set_yt_dlp_channel<R: Runtime>(
+    value: YtDlpChannel,
+    app_handle: AppHandle<R>,
+    state: tauri::State<'_, Mutex<AppData>>,
+) -> bool {
+    info!(channel = %value, "set_yt_dlp_channel");
+    state.lock().unwrap().settings.yt_dlp_channel = value;
+    let ok = update_settings(&app_handle, &state);
+    info!(channel = %value, persisted = ok, "set_yt_dlp_channel done");
+    ok
 }
 
 #[tauri::command]

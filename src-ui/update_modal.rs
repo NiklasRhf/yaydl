@@ -1,7 +1,12 @@
 use leptos::*;
 
 #[component]
-pub fn UpdateModal(show: ReadSignal<bool>, progress: ReadSignal<Option<u8>>, on_update: Callback<()>, on_quit: Callback<()>) -> impl IntoView {
+pub fn UpdateModal(
+    show: ReadSignal<bool>,
+    progress: ReadSignal<Option<u8>>,
+    on_update: Callback<()>,
+    on_quit: Callback<()>,
+) -> impl IntoView {
     view! {
         <Show when=move || show.get()>
             <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">

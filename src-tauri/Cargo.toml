@@ -1,6 +1,6 @@
 [package]
 name = "yaydl"
-version = "0.2.1"
+version = "0.3.0"
 description = "Yet Another YouTube Downloader"
 authors = ["NiklasRhf <65732627+niklasrhf@users.noreply.github.com>"]
 edition = "2021"
@@ -26,7 +26,15 @@ tauri = { version = "2", features = [] }
 tauri-plugin-clipboard-manager = "2.0.1"
 tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
+tokio = { version = "1.53", features = ["io-util", "process"] }
 toml = "0.8.19"
+tracing = "0.1.44"
+tracing-appender = "0.2.5"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
+
+[dev-dependencies]
+tempfile = "3.27"
+tokio = { version = "1.53", features = ["macros", "rt", "rt-multi-thread"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"

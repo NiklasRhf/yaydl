@@ -12,6 +12,7 @@
     "shell:allow-spawn",
     "shell:allow-stdin-write",
     "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
     "dialog:default",
     "updater:default"
   ]

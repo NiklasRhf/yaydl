@@ -81,7 +81,7 @@ pub fn NotificationDisplay(notification: Notification) -> impl IntoView {
                 NotificationType::Error => view! { <Icon icon=icondata::BiErrorCircleRegular class="h-6 w-6 fill-red-500"/> },
                 NotificationType::Success => view! { <Icon icon=icondata::AiCheckOutlined class="h-6 w-6 fill-green-500"/> },
             }}
-            <p>{notification.text}</p>
+            <p class="max-w-md max-h-[50vh] overflow-y-auto whitespace-pre-line break-words">{notification.text}</p>
             <button
                 on:click=move |_| notification_context.remove_notification()
             >
