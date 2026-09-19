@@ -1,15 +1,12 @@
 name: Release
 on:
   push:
-    branches:
-      - release
-  workflow_dispatch:
+    tags:
+      - "yaydl-v*"
 
-# Two pushes to release in quick succession would otherwise race on creating
-# the same tag and GitHub release.
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -24,6 +21,16 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check that the tag matches the app version
+        shell: bash
+        run: |
+          version=$(python3 -c "import json; print(json.load(open('src-tauri/tauri.conf.json'))['version'])")
+          tag="${GITHUB_REF_NAME}"
+          if [ "$tag" != "yaydl-v$version" ]; then
+            echo "tag $tag does not match tauri.conf.json version $version (expected yaydl-v$version)"
+            exit 1
+          fi
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'

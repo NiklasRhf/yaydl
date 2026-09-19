@@ -29,3 +29,16 @@ as stated in the [MIT license](https://github.com/NiklasRhf/yaydl/blob/main/LICE
 The maintainers of yaydl do not in any way condone the use of this application in practices
 that violate local laws such as but not limited to the DMCA. The maintainers of this application
 call upon the personal responsibility of its users to use this application in a fair way, as it is intended to be used.
+
+## Releasing
+
+Releases are cut from `main` by pushing a tag. `scripts/release.sh <version>` bumps the version in
+every manifest, commits, and creates the tag `yaydl-v<version>`. Pushing that tag runs the release
+workflow, which builds the Linux and Windows bundles and publishes them, together with the updater
+manifest, as a GitHub release. The workflow refuses a tag whose version does not match
+`src-tauri/tauri.conf.json`.
+
+```
+scripts/release.sh 0.4.0
+git push origin main yaydl-v0.4.0
+```
