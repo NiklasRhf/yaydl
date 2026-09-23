@@ -4,8 +4,9 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_icons::Icon;
 use yaydl_shared::{
-    validate_file_stem, ConfirmDuplicateArgs, DownloadId, DownloadItem, DownloadStatus,
-    FriendlyError, IdArgs, OutputFormat, RenameArgs, SetFormatArgs, MAX_FILE_STEM_CHARS,
+    playlist_in_video_link, validate_file_stem, ConfirmDuplicateArgs, DownloadId, DownloadItem,
+    DownloadStatus, FriendlyError, IdArgs, OutputFormat, RenameArgs, SetFormatArgs,
+    MAX_FILE_STEM_CHARS,
 };
 
 use crate::format;
@@ -118,6 +119,35 @@ fn finished_extension(item: &DownloadItem) -> Option<String> {
     format::extension(&path).map(|ext| format!(".{ext}"))
 }
 
+/// Whether the row offers to add the whole playlist its link was opened from,
+/// and if so whether that playlist is a YouTube Mix. Once a download started,
+/// replacing the item would throw away its progress or file.
+fn playlist_offer(item: &DownloadItem) -> Option<bool> {
+    if !item.status.can_edit_before_download() {
+        return None;
+    }
+    playlist_in_video_link(&item.url).map(|link| link.is_mix)
+}
+
+struct OfferTexts {
+    label: &'static str,
+    hint: &'static str,
+}
+
+fn offer_texts(t: &Texts, is_mix: bool) -> OfferTexts {
+    if is_mix {
+        OfferTexts {
+            label: t.add_whole_mix,
+            hint: t.add_whole_mix_hint,
+        }
+    } else {
+        OfferTexts {
+            label: t.add_whole_playlist,
+            hint: t.add_whole_playlist_hint,
+        }
+    }
+}
+
 fn friendly_error(item: &DownloadItem) -> Option<FriendlyError> {
     match &item.status {
         DownloadStatus::Failed { error } | DownloadStatus::MetadataFailed { error } => {
@@ -132,6 +162,7 @@ pub fn ItemRow(item: Signal<DownloadItem>) -> impl IntoView {
     let id = item.with_untracked(|i| i.id);
     let kind = Memo::new(move |_| item.with(|i| Kind::of(&i.status)));
     let editing = RwSignal::new(false);
+    let expanding = RwSignal::new(false);
     let t = use_texts();
 
     let title = Memo::new(move |_| item.with(display_title));
@@ -151,6 +182,8 @@ pub fn ItemRow(item: Signal<DownloadItem>) -> impl IntoView {
             parts.join(" \u{b7} ")
         })
     });
+    // A memo so progress and format updates do not rebuild the offer.
+    let offer = Memo::new(move |_| item.with(playlist_offer));
 
     view! {
         <li class="card flex gap-4 p-3">
@@ -183,6 +216,13 @@ pub fn ItemRow(item: Signal<DownloadItem>) -> impl IntoView {
                                 <p class="truncate text-sm text-zinc-500 dark:text-zinc-400">
                                     {move || secondary.get()}
                                 </p>
+                                {move || {
+                                    offer
+                                        .get()
+                                        .map(|is_mix| {
+                                            view! { <PlaylistOffer id=id is_mix=is_mix expanding=expanding /> }
+                                        })
+                                }}
                             </div>
                         }
                             .into_any()
@@ -351,6 +391,50 @@ pub fn IconButton(label: Text, icon: icondata::Icon, on_click: Callback<()>) -> 
         >
             <Icon icon=icon />
         </button>
+    }
+}
+
+#[component]
+fn PlaylistOffer(
+    id: DownloadId,
+    is_mix: bool,
+    /// Owned by the row, so rebuilding this view cannot re-enable the button
+    /// while the command is still running.
+    expanding: RwSignal<bool>,
+) -> impl IntoView {
+    let toasts = use_app().toasts;
+    let t = use_texts();
+    let texts = move || offer_texts(t(), is_mix);
+    // Success needs no toast, the backend raises its own notices and replaces
+    // this row.
+    let expand = move |_| {
+        if expanding.get_untracked() {
+            return;
+        }
+        expanding.set(true);
+        spawn_local(async move {
+            if let Err(e) = call::<_, ()>("expand_playlist", &IdArgs { id }).await {
+                toasts.error(e);
+            }
+            expanding.set(false);
+        });
+    };
+    view! {
+        <p class="mt-0.5 text-xs">
+            <button
+                class="link inline-flex items-start gap-1 text-left disabled:cursor-wait disabled:opacity-50 disabled:no-underline"
+                title=move || texts().hint
+                aria-label=move || texts().label
+                aria-busy=move || expanding.get().to_string()
+                disabled=move || expanding.get()
+                on:click=expand
+            >
+                <span class="mt-px shrink-0 text-sm leading-none">
+                    <Icon icon=icondata::LuListPlus />
+                </span>
+                <span>{move || texts().label}</span>
+            </button>
+        </p>
     }
 }
 
@@ -706,6 +790,50 @@ mod tests {
             ..finished(None)
         };
         assert_eq!(display_title(&unresolved), "https://youtu.be/abc123");
+    }
+
+    #[test]
+    fn only_editable_items_from_playlist_links_offer_the_playlist() {
+        let with = |url: &str, status: DownloadStatus| DownloadItem {
+            url: url.to_string(),
+            status,
+            ..finished(None)
+        };
+        let playlist = "https://www.youtube.com/watch?v=abc123&list=PLxyz";
+        let mix = "https://youtu.be/abc123?list=RDabc123";
+
+        assert_eq!(
+            playlist_offer(&with(playlist, DownloadStatus::Ready)),
+            Some(false)
+        );
+        assert_eq!(
+            playlist_offer(&with(mix, DownloadStatus::Cancelled)),
+            Some(true)
+        );
+        assert_eq!(
+            playlist_offer(&with(playlist, DownloadStatus::Finished)),
+            None
+        );
+        assert_eq!(
+            playlist_offer(&with(playlist, DownloadStatus::Queued)),
+            None
+        );
+        assert_eq!(
+            playlist_offer(&with(playlist, DownloadStatus::ResolvingMetadata)),
+            None
+        );
+        assert_eq!(
+            playlist_offer(&with("https://youtu.be/abc123", DownloadStatus::Ready)),
+            None
+        );
+    }
+
+    #[test]
+    fn a_mix_is_named_a_mix() {
+        assert_eq!(offer_texts(&DE, false).label, "Ganze Playlist hinzufügen");
+        assert_eq!(offer_texts(&DE, true).label, "Ganzen Mix hinzufügen");
+        assert_eq!(offer_texts(&EN, true).hint, EN.add_whole_mix_hint);
+        assert_eq!(offer_texts(&EN, false).hint, EN.add_whole_playlist_hint);
     }
 
     #[test]

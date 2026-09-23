@@ -107,6 +107,10 @@ pub struct Texts {
     pub name_too_long: fn(usize) -> String,
     pub name_forbidden_char: fn(&str) -> String,
     pub name_reserved: fn(&str) -> String,
+    pub add_whole_playlist: &'static str,
+    pub add_whole_mix: &'static str,
+    pub add_whole_playlist_hint: &'static str,
+    pub add_whole_mix_hint: &'static str,
 
     pub err_age_restricted: &'static str,
     pub err_bot_check: &'static str,
@@ -392,6 +396,10 @@ pub const EN: Texts = Texts {
     name_too_long: |max| format!("The name is longer than {max} characters"),
     name_forbidden_char: |c| format!("The name contains the forbidden character \u{201c}{c}\u{201d}"),
     name_reserved: |name| format!("\u{201c}{name}\u{201d} is a reserved name on Windows"),
+    add_whole_playlist: "Add whole playlist",
+    add_whole_mix: "Add whole mix",
+    add_whole_playlist_hint: "Replace this video with all videos of its playlist",
+    add_whole_mix_hint: "Replace this video with all videos of its mix",
 
     err_age_restricted: "This video is age-restricted. Choose a browser you are signed in with under cookies in the settings, then retry.",
     err_bot_check: "YouTube wants to confirm you are not a bot. Choose a browser you are signed in with under cookies in the settings, then retry.",
@@ -706,6 +714,10 @@ pub const DE: Texts = Texts {
     name_too_long: |max| format!("Der Name ist länger als {max} Zeichen"),
     name_forbidden_char: |c| format!("Das Zeichen \u{201e}{c}\u{201c} ist im Namen nicht erlaubt"),
     name_reserved: |name| format!("\u{201e}{name}\u{201c} ist unter Windows ein reservierter Name"),
+    add_whole_playlist: "Ganze Playlist hinzufügen",
+    add_whole_mix: "Ganzen Mix hinzufügen",
+    add_whole_playlist_hint: "Ersetze dieses Video durch alle Videos seiner Playlist",
+    add_whole_mix_hint: "Ersetze dieses Video durch alle Videos seines Mixes",
 
     err_age_restricted: "Dieses Video hat eine Altersbeschränkung. Wähle in den Einstellungen unter Cookies einen Browser, in dem du angemeldet bist, und versuch es dann nochmal.",
     err_bot_check: "YouTube will prüfen, ob du ein Bot bist. Wähle in den Einstellungen unter Cookies einen Browser, in dem du angemeldet bist, und versuch es dann nochmal.",
