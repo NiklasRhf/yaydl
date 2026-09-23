@@ -951,12 +951,20 @@ enum PlaylistScope {
 /// what YouTube's own Mix panel shows.
 pub const MIX_ENTRY_LIMIT: u32 = 50;
 
+/// yt-dlp encodes printed lines with the pipe's encoding and silently drops
+/// what does not fit (`s.encode(enc, 'ignore')`). On Windows that is the ANSI
+/// code page, which has no fullwidth quote, the character yt-dlp puts into file
+/// names in place of `"`. The printed path then misses characters and does not
+/// exist. `PYTHONIOENCODING` does not reach the bundled yt-dlp.exe there.
+const FORCE_UTF8: [&str; 2] = ["--encoding", "utf-8"];
+
 fn resolve_args(url: &str, run: &RunOptions, scope: PlaylistScope) -> Vec<String> {
     let playlist = match scope {
         PlaylistScope::VideoOnly => "--no-playlist",
         PlaylistScope::WholePlaylist => "--yes-playlist",
     };
-    let mut args = strings(&["-J", "--flat-playlist", playlist]);
+    let mut args = strings(&FORCE_UTF8);
+    args.extend(strings(&["-J", "--flat-playlist", playlist]));
     let is_mix = yaydl_shared::playlist_in_video_link(url).is_some_and(|link| link.is_mix);
     if matches!(scope, PlaylistScope::WholePlaylist) && is_mix {
         args.push("--playlist-items".to_string());
@@ -976,7 +984,8 @@ fn download_args(
         Some(stem) => format!("{}.%(ext)s", stem.replace('%', "%%")),
         None => DEFAULT_OUTPUT_TEMPLATE.to_string(),
     };
-    let mut args = strings(&[
+    let mut args = strings(&FORCE_UTF8);
+    args.extend(strings(&[
         "--newline",
         "--no-playlist",
         "--progress",
@@ -987,7 +996,7 @@ fn download_args(
         "--print",
         FILE_PRINT,
         "--ffmpeg-location",
-    ]);
+    ]));
     args.push(utf8_path(ffmpeg_dir, "ffmpeg folder")?);
     args.push("-P".to_string());
     args.push(utf8_path(&request.output_dir, "download folder")?);
@@ -1785,6 +1794,8 @@ mod tests {
         let args = download_args(&request, Path::new("/opt/yaydl")).unwrap();
 
         let expected = strings(&[
+            "--encoding",
+            "utf-8",
             "--newline",
             "--no-playlist",
             "--progress",
@@ -1888,7 +1899,15 @@ mod tests {
         let url = "https://www.youtube.com/watch?v=x&list=y";
         assert_eq!(
             resolve_args(url, &run_options(), PlaylistScope::VideoOnly),
-            strings(&["-J", "--flat-playlist", "--no-playlist", "--", url])
+            strings(&[
+                "--encoding",
+                "utf-8",
+                "-J",
+                "--flat-playlist",
+                "--no-playlist",
+                "--",
+                url
+            ])
         );
         let with_cookies = RunOptions {
             cookies_from_browser: Some(Browser::Chrome),
@@ -1897,6 +1916,8 @@ mod tests {
         assert_eq!(
             resolve_args(url, &with_cookies, PlaylistScope::VideoOnly),
             strings(&[
+                "--encoding",
+                "utf-8",
                 "-J",
                 "--flat-playlist",
                 "--no-playlist",
@@ -1915,6 +1936,8 @@ mod tests {
         assert_eq!(
             resolve_args(mix, &run_options(), PlaylistScope::WholePlaylist),
             strings(&[
+                "--encoding",
+                "utf-8",
                 "-J",
                 "--flat-playlist",
                 "--yes-playlist",
@@ -1926,7 +1949,15 @@ mod tests {
         );
         assert_eq!(
             resolve_args(mix, &run_options(), PlaylistScope::VideoOnly),
-            strings(&["-J", "--flat-playlist", "--no-playlist", "--", mix])
+            strings(&[
+                "--encoding",
+                "utf-8",
+                "-J",
+                "--flat-playlist",
+                "--no-playlist",
+                "--",
+                mix
+            ])
         );
         let playlist =
             "https://www.youtube.com/watch?v=viuYLuyILeo&list=PLhCCfdELbr0Pi9RLMNAGhzKyF50LqlB4U";
@@ -1940,7 +1971,15 @@ mod tests {
         let url = "https://www.youtube.com/watch?v=x&list=PLy";
         assert_eq!(
             resolve_args(url, &run_options(), PlaylistScope::WholePlaylist),
-            strings(&["-J", "--flat-playlist", "--yes-playlist", "--", url])
+            strings(&[
+                "--encoding",
+                "utf-8",
+                "-J",
+                "--flat-playlist",
+                "--yes-playlist",
+                "--",
+                url
+            ])
         );
         let with_cookies = RunOptions {
             cookies_from_browser: Some(Browser::Firefox),
@@ -1949,6 +1988,8 @@ mod tests {
         assert_eq!(
             resolve_args(url, &with_cookies, PlaylistScope::WholePlaylist),
             strings(&[
+                "--encoding",
+                "utf-8",
                 "-J",
                 "--flat-playlist",
                 "--yes-playlist",
