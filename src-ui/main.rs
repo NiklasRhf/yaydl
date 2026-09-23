@@ -1,11 +1,16 @@
 mod app;
+mod format;
+mod ipc;
 mod log_viewer;
-mod notification;
-mod update_context;
-mod update_modal;
+mod queue;
+mod state;
+mod theme;
+mod toast;
+mod update_banner;
+mod views;
 
-use app::{log_to_backend, App};
-use leptos::{mount_to_body, view};
+use app::App;
+use ipc::log_to_backend;
 
 fn main() {
     // A wasm panic otherwise only reaches the devtools console, which the user
@@ -14,9 +19,5 @@ fn main() {
         console_error_panic_hook::hook(info);
         log_to_backend("error", format!("webview panicked: {info}"));
     }));
-    mount_to_body(|| {
-        view! {
-            <App/>
-        }
-    });
+    leptos::mount::mount_to_body(App);
 }

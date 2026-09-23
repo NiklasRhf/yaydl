@@ -10,11 +10,11 @@ path = "src-ui/main.rs"
 [dependencies]
 leptos = { version = "0.8.20", features = ["csr"] }
 leptos_icons = "0.7.1"
-icondata = "0.7.0"
+icondata = { version = "0.7.0", default-features = false, features = ["lucide"] }
 wasm-bindgen = "0.2.128"
 wasm-bindgen-futures = "0.4.78"
 js-sys = "0.3.105"
-web-sys = { version = "0.3.105", features = ["Window", "Document", "Element", "HtmlElement", "HtmlInputElement", "ClipboardEvent", "DataTransfer", "DragEvent", "KeyboardEvent", "MediaQueryList", "MediaQueryListEvent", "DomTokenList"] }
+web-sys = { version = "0.3.105", features = ["Window", "Document", "Element", "HtmlElement", "HtmlInputElement", "ClipboardEvent", "DataTransfer", "DragEvent", "KeyboardEvent", "MediaQueryList", "MediaQueryListEvent", "DomTokenList", "HtmlSelectElement", "Event", "EventTarget", "Node", "console"] }
 serde = { workspace = true }
 serde_json = "1.0.151"
 serde-wasm-bindgen = "0.6.5"
