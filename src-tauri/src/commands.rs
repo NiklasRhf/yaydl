@@ -7,7 +7,6 @@ use std::{
 };
 
 use tauri::{AppHandle, Emitter, State, Wry};
-use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::oneshot;
@@ -57,10 +56,7 @@ pub async fn add_from_clipboard(
     app: AppHandle,
     queue: State<'_, AppQueue>,
 ) -> Result<AddUrlsResult> {
-    let text = app
-        .clipboard()
-        .read_text()
-        .map_err(|e| YaydlError::ClipboardRead(e.to_string()))?;
+    let text = crate::clipboard::read_text(&app).await?;
     Ok(queue.add_urls(&text))
 }
 

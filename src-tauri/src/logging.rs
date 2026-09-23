@@ -5,7 +5,6 @@ use std::{
 };
 
 use tauri::{AppHandle, Runtime};
-use tauri_plugin_clipboard_manager::ClipboardExt;
 use tracing::{debug, error, info, warn};
 use tracing_appender::{
     non_blocking::WorkerGuard,
@@ -176,9 +175,7 @@ pub async fn copy_to_clipboard<R: Runtime>(
     app: AppHandle<R>,
     text: String,
 ) -> Result<(), YaydlError> {
-    app.clipboard()
-        .write_text(text)
-        .map_err(|e| YaydlError::ClipboardWrite(e.to_string()))
+    crate::clipboard::write_text(&app, text).await
 }
 
 // AGENT CODE: claude-opus-5

@@ -5,6 +5,7 @@ use tracing::{info, warn};
 use yaydl_shared::NoticeLevel;
 
 pub mod app_update;
+mod clipboard;
 pub mod commands;
 pub mod history;
 pub mod i18n;

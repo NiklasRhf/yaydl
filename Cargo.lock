@@ -7508,6 +7508,7 @@ name = "yaydl"
 version = "0.3.0"
 dependencies = [
  "dirs 7.0.0",
+ "gtk",
  "jiff",
  "libc",
  "reqwest",
