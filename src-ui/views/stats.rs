@@ -435,9 +435,15 @@ fn BarChart(
                 let path = column_path(x, y_of(b.count), bar_w, base);
                 view! { <path class="viz-bar" d=path /> }
             });
+            // The newest label sits at the right edge, centering it would clip it.
+            let (label_x, anchor) = if i == last {
+                (band_x + band, "end")
+            } else {
+                (band_x + band / 2.0, "middle")
+            };
             let axis_label = (last - i).is_multiple_of(label_every).then(|| {
                 view! {
-                    <text x=band_x + band / 2.0 y=CHART_H - 8.0 text-anchor="middle" font-size="11" fill="var(--viz-label)">
+                    <text x=label_x y=CHART_H - 8.0 text-anchor=anchor font-size="11" fill="var(--viz-label)">
                         {label.clone()}
                     </text>
                 }

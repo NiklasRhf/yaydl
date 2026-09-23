@@ -312,7 +312,7 @@ pub const EN: Texts = Texts {
 
     downloads_title: "Downloads",
     add_links_label: "Links to add",
-    add_links_placeholder: "Paste links from YouTube or 1000+ other sites",
+    add_links_placeholder: "Paste links (YouTube and 1000+ sites)",
     add: "Add",
     paste_from_clipboard: "Paste from clipboard",
     download_all: "Download all",
@@ -626,7 +626,7 @@ pub const DE: Texts = Texts {
 
     downloads_title: "Downloads",
     add_links_label: "Links zum Hinzufügen",
-    add_links_placeholder: "Links von YouTube oder 1000+ anderen Seiten einfügen",
+    add_links_placeholder: "Links einfügen (YouTube und 1000+ Seiten)",
     add: "Hinzufügen",
     paste_from_clipboard: "Aus Zwischenablage",
     download_all: "Alle herunterladen",
