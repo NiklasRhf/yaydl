@@ -19,6 +19,11 @@ pub struct Texts {
     pub history_details_missing: fn(id: DownloadId) -> String,
     pub start_failed: fn(id: DownloadId, error: &dyn Display) -> String,
     pub playlist_skipped: fn(skipped: u32, playlist: Option<&str>) -> String,
+    pub playlist_added: fn(added: u32, playlist: Option<&str>, is_mix: bool) -> String,
+    pub playlist_all_queued: fn(is_mix: bool) -> String,
+    pub playlist_empty: fn(is_mix: bool) -> String,
+    pub playlist_got_single: fn(is_mix: bool) -> String,
+    pub playlist_load_failed: fn(is_mix: bool, error: &str) -> String,
     pub ytdlp_updated: fn(from: &str, to: &str, channel: YtDlpChannel) -> String,
     pub ytdlp_update_failed: fn(error: &dyn Display) -> String,
     pub batch_summary: fn(finished: u32, failed: u32) -> String,
@@ -63,6 +68,27 @@ pub const EN: Texts = Texts {
         let videos = if skipped == 1 { "video" } else { "videos" };
         let playlist = playlist.unwrap_or("the playlist");
         format!("Skipped {skipped} unavailable {videos} from {playlist}.")
+    },
+    playlist_added: |added, playlist, is_mix| {
+        let videos = if added == 1 { "video" } else { "videos" };
+        let playlist = playlist.unwrap_or(if is_mix { "the mix" } else { "the playlist" });
+        format!("Added {added} {videos} from {playlist}.")
+    },
+    playlist_all_queued: |is_mix| {
+        let playlist = if is_mix { "mix" } else { "playlist" };
+        format!("Every video of this {playlist} is already in the queue.")
+    },
+    playlist_empty: |is_mix| {
+        let playlist = if is_mix { "mix" } else { "playlist" };
+        format!("This {playlist} has no downloadable videos.")
+    },
+    playlist_got_single: |is_mix| {
+        let playlist = if is_mix { "mix" } else { "playlist" };
+        format!("YouTube returned a single video instead of the {playlist}.")
+    },
+    playlist_load_failed: |is_mix, error| {
+        let playlist = if is_mix { "mix" } else { "playlist" };
+        format!("Loading the {playlist} failed: {error}")
     },
     ytdlp_updated: |from, to, channel| {
         format!("yt-dlp was updated from {from} to {to} ({channel}).")
@@ -123,6 +149,35 @@ pub const DE: Texts = Texts {
         };
         let playlist = playlist.unwrap_or("der Playlist");
         format!("{skipped} {videos} aus {playlist} übersprungen.")
+    },
+    playlist_added: |added, playlist, is_mix| {
+        let videos = if added == 1 { "Video" } else { "Videos" };
+        let playlist = playlist.unwrap_or(if is_mix { "dem Mix" } else { "der Playlist" });
+        format!("{added} {videos} aus {playlist} hinzugefügt.")
+    },
+    playlist_all_queued: |is_mix| {
+        let playlist = if is_mix {
+            "dieses Mixes"
+        } else {
+            "dieser Playlist"
+        };
+        format!("Alle Videos {playlist} sind schon in der Warteschlange.")
+    },
+    playlist_empty: |is_mix| {
+        let playlist = if is_mix {
+            "Dieser Mix"
+        } else {
+            "Diese Playlist"
+        };
+        format!("{playlist} hat keine herunterladbaren Videos.")
+    },
+    playlist_got_single: |is_mix| {
+        let playlist = if is_mix { "des Mixes" } else { "der Playlist" };
+        format!("YouTube hat ein einzelnes Video statt {playlist} geliefert.")
+    },
+    playlist_load_failed: |is_mix, error| {
+        let playlist = if is_mix { "Der Mix" } else { "Die Playlist" };
+        format!("{playlist} konnte nicht geladen werden: {error}")
     },
     ytdlp_updated: |from, to, channel| {
         format!("yt-dlp wurde von {from} auf {to} aktualisiert ({channel}).")
@@ -210,6 +265,65 @@ mod tests {
         assert_eq!(
             de(4, None),
             "4 nicht verfügbare Videos aus der Playlist übersprungen."
+        );
+    }
+
+    #[test]
+    fn playlist_added_plurals_and_fallbacks() {
+        let en = texts(Locale::En).playlist_added;
+        assert_eq!(
+            en(1, Some("Road Trip"), false),
+            "Added 1 video from Road Trip."
+        );
+        assert_eq!(en(13, None, false), "Added 13 videos from the playlist.");
+        assert_eq!(en(25, None, true), "Added 25 videos from the mix.");
+
+        let de = texts(Locale::De).playlist_added;
+        assert_eq!(
+            de(1, Some("Road Trip"), false),
+            "1 Video aus Road Trip hinzugefügt."
+        );
+        assert_eq!(
+            de(13, None, false),
+            "13 Videos aus der Playlist hinzugefügt."
+        );
+        assert_eq!(de(25, None, true), "25 Videos aus dem Mix hinzugefügt.");
+    }
+
+    #[test]
+    fn playlist_expansion_notices_name_playlist_or_mix() {
+        let (en, de) = (texts(Locale::En), texts(Locale::De));
+        assert_eq!(
+            (en.playlist_all_queued)(false),
+            "Every video of this playlist is already in the queue."
+        );
+        assert_eq!(
+            (de.playlist_all_queued)(true),
+            "Alle Videos dieses Mixes sind schon in der Warteschlange."
+        );
+        assert_eq!(
+            (en.playlist_empty)(true),
+            "This mix has no downloadable videos."
+        );
+        assert_eq!(
+            (de.playlist_empty)(false),
+            "Diese Playlist hat keine herunterladbaren Videos."
+        );
+        assert_eq!(
+            (en.playlist_got_single)(false),
+            "YouTube returned a single video instead of the playlist."
+        );
+        assert_eq!(
+            (de.playlist_got_single)(true),
+            "YouTube hat ein einzelnes Video statt des Mixes geliefert."
+        );
+        assert_eq!(
+            (en.playlist_load_failed)(false, "No internet connection."),
+            "Loading the playlist failed: No internet connection."
+        );
+        assert_eq!(
+            (de.playlist_load_failed)(true, "No internet connection."),
+            "Der Mix konnte nicht geladen werden: No internet connection."
         );
     }
 

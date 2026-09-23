@@ -10,9 +10,9 @@ use serde::{Deserialize, Serialize};
 use tokio::runtime::Handle;
 use tracing::{debug, error, info, warn};
 use yaydl_shared::{
-    validate_file_stem, AddUrlsResult, DownloadId, DownloadItem, DownloadStatus, ErrorKind,
-    FriendlyError, HistoryEntry, Notice, NoticeLevel, OutputFormat, PreviousDownload, Progress,
-    Settings, VideoMetadata, YaydlError,
+    playlist_in_video_link, validate_file_stem, AddUrlsResult, DownloadId, DownloadItem,
+    DownloadStatus, ErrorKind, FriendlyError, HistoryEntry, Notice, NoticeLevel, OutputFormat,
+    PlaylistLink, PreviousDownload, Progress, Settings, VideoMetadata, YaydlError,
 };
 
 use crate::{
@@ -33,6 +33,7 @@ const QUEUE_VERSION: u64 = 1;
 pub const INTERRUPTED_MESSAGE: &str =
     "yaydl was closed during this download. Retry to start it again.";
 const EMPTY_PLAYLIST_MESSAGE: &str = "This playlist has no downloadable videos.";
+const EXPAND_ACTION: &str = "add the playlist of";
 
 type Result<T> = std::result::Result<T, YaydlError>;
 
@@ -40,6 +41,13 @@ type Result<T> = std::result::Result<T, YaydlError>;
 /// spawning processes.
 pub trait Engine: Send + Sync + 'static {
     fn resolve(
+        &self,
+        url: &str,
+        run: &RunOptions,
+    ) -> impl Future<Output = std::result::Result<Resolved, YtDlpFailure>> + Send;
+
+    /// Like `resolve`, but lists the playlist a video link was opened from.
+    fn resolve_playlist(
         &self,
         url: &str,
         run: &RunOptions,
@@ -60,6 +68,14 @@ impl<R: Runner> Engine for YtDlp<R> {
         run: &RunOptions,
     ) -> std::result::Result<Resolved, YtDlpFailure> {
         YtDlp::resolve(self, url, run).await
+    }
+
+    async fn resolve_playlist(
+        &self,
+        url: &str,
+        run: &RunOptions,
+    ) -> std::result::Result<Resolved, YtDlpFailure> {
+        YtDlp::resolve_playlist(self, url, run).await
     }
 
     async fn download(
@@ -98,6 +114,22 @@ struct QueueFileRef<'a> {
     version: u64,
     next_id: DownloadId,
     items: &'a [DownloadItem],
+}
+
+/// What an item looked like before its playlist was requested, put back when
+/// the request adds no videos.
+struct BeforeExpansion {
+    status: DownloadStatus,
+    metadata: Option<VideoMetadata>,
+    previous_download: Option<PreviousDownload>,
+}
+
+/// New queue items built from playlist entries, not yet inserted.
+struct Expansion {
+    items: Vec<DownloadItem>,
+    total: usize,
+    already_queued: usize,
+    skipped: u32,
 }
 
 #[derive(Default)]
@@ -410,6 +442,46 @@ impl<E: Engine, S: Sink> Queue<E, S> {
         Ok(())
     }
 
+    /// Replaces a video opened from a playlist with every video of that
+    /// playlist, which for a YouTube Mix is the only way to list it.
+    pub fn expand_playlist(&self, id: DownloadId) -> Result<()> {
+        let (url, link, before) = {
+            let mut state = self.inner.lock();
+            let index = state.position(id)?;
+            let item = &mut state.items[index];
+            if !item.status.can_edit_before_download() {
+                return Err(invalid_state(EXPAND_ACTION, &item.status));
+            }
+            let Some(link) = playlist_in_video_link(&item.url) else {
+                return Err(YaydlError::InvalidState {
+                    action: EXPAND_ACTION.to_string(),
+                    state: "a link without a playlist".to_string(),
+                });
+            };
+            let before = BeforeExpansion {
+                status: std::mem::replace(&mut item.status, DownloadStatus::ResolvingMetadata),
+                metadata: item.metadata.clone(),
+                previous_download: item.previous_download.clone(),
+            };
+            info!(
+                id,
+                list_id = %link.list_id,
+                is_mix = link.is_mix,
+                from = before.status.name(),
+                "expand_playlist"
+            );
+            let url = item.url.clone();
+            self.inner.sink.item_updated(&state.items[index]);
+            self.inner.persist(&state);
+            (url, link, before)
+        };
+        let queue = self.clone();
+        self.inner.runtime.spawn(async move {
+            queue.run_expand(id, url, link, before).await;
+        });
+        Ok(())
+    }
+
     pub fn cancel_download(&self, id: DownloadId) -> Result<()> {
         {
             let mut state = self.inner.lock();
@@ -650,6 +722,24 @@ impl<E: Engine, S: Sink> Queue<E, S> {
         self.inner.apply_resolved(id, result);
     }
 
+    async fn run_expand(
+        &self,
+        id: DownloadId,
+        url: String,
+        link: PlaylistLink,
+        before: BeforeExpansion,
+    ) {
+        let run = run_options(&self.inner.settings.get());
+        info!(id, %url, "resolving the playlist of a video link");
+        let engine = Arc::clone(&self.inner.engine);
+        let result = self
+            .guarded(id, "resolve playlist", async move {
+                engine.resolve_playlist(&url, &run).await
+            })
+            .await;
+        self.inner.apply_expanded(id, &link, before, result);
+    }
+
     async fn run_download(
         &self,
         id: DownloadId,
@@ -831,7 +921,22 @@ impl<E: Engine, S: Sink> Inner<E, S> {
                 entries,
                 unavailable,
             }) => {
-                self.expand_playlist(&mut state, index, title, entries, unavailable);
+                let expansion =
+                    self.playlist_items(&mut state, index, title.as_deref(), entries, unavailable);
+                if expansion.items.is_empty() {
+                    state.items[index].status = DownloadStatus::MetadataFailed {
+                        error: FriendlyError {
+                            kind: ErrorKind::EmptyPlaylist,
+                            message: EMPTY_PLAYLIST_MESSAGE.to_string(),
+                            detail: format!(
+                                "{} entries listed, {} already in the queue, {} unavailable",
+                                expansion.total, expansion.already_queued, expansion.skipped
+                            ),
+                        },
+                    };
+                } else {
+                    state.items.splice(index..=index, expansion.items);
+                }
                 self.sink.queue_replaced(&state.newest_first());
             }
             Err(YtDlpFailure::Failed(error)) => {
@@ -845,12 +950,7 @@ impl<E: Engine, S: Sink> Inner<E, S> {
                     "the engine reported a cancelled resolve, which is never requested"
                 );
                 state.items[index].status = DownloadStatus::MetadataFailed {
-                    error: FriendlyError {
-                        kind: ErrorKind::Other,
-                        message: "Looking up this link stopped unexpectedly. Retry to try again."
-                            .to_string(),
-                        detail: "the engine returned Cancelled for a resolve".to_string(),
-                    },
+                    error: unexpected_resolve_cancel(),
                 };
                 self.sink.item_updated(&state.items[index]);
             }
@@ -858,14 +958,106 @@ impl<E: Engine, S: Sink> Inner<E, S> {
         self.persist(&state);
     }
 
-    fn expand_playlist(
+    fn apply_expanded(
+        &self,
+        id: DownloadId,
+        link: &PlaylistLink,
+        before: BeforeExpansion,
+        result: std::result::Result<Resolved, YtDlpFailure>,
+    ) {
+        let mut state = self.lock();
+        let Ok(index) = state.position(id) else {
+            debug!(
+                id,
+                "item was removed while its playlist was loading, dropping the result"
+            );
+            return;
+        };
+        if state.items[index].status != DownloadStatus::ResolvingMetadata {
+            warn!(
+                id,
+                expected = "resolving metadata",
+                actual = state.items[index].status.name(),
+                "dropping a playlist result"
+            );
+            return;
+        }
+        let texts = self.texts();
+        let (level, text) = match result {
+            Ok(Resolved::Playlist {
+                title,
+                entries,
+                unavailable,
+            }) => {
+                let expansion =
+                    self.playlist_items(&mut state, index, title.as_deref(), entries, unavailable);
+                if expansion.items.is_empty() {
+                    restore_before_expansion(&mut state.items[index], before);
+                    self.sink.item_updated(&state.items[index]);
+                    let text = if expansion.already_queued > 0 {
+                        (texts.playlist_all_queued)(link.is_mix)
+                    } else {
+                        (texts.playlist_empty)(link.is_mix)
+                    };
+                    (NoticeLevel::Info, text)
+                } else {
+                    let added = count_u32(expansion.items.len());
+                    state.items.splice(index..=index, expansion.items);
+                    self.sink.queue_replaced(&state.newest_first());
+                    (
+                        NoticeLevel::Success,
+                        (texts.playlist_added)(added, title.as_deref(), link.is_mix),
+                    )
+                }
+            }
+            Ok(Resolved::Single(metadata)) => {
+                warn!(
+                    id,
+                    video_id = %metadata.video_id,
+                    list_id = %link.list_id,
+                    "yt-dlp returned a single video for a playlist request"
+                );
+                restore_before_expansion(&mut state.items[index], before);
+                self.sink.item_updated(&state.items[index]);
+                (NoticeLevel::Error, (texts.playlist_got_single)(link.is_mix))
+            }
+            Err(YtDlpFailure::Failed(error)) => {
+                info!(id, kind = ?error.kind, message = %error.message, "loading the playlist failed");
+                restore_before_expansion(&mut state.items[index], before);
+                self.sink.item_updated(&state.items[index]);
+                (
+                    NoticeLevel::Error,
+                    (texts.playlist_load_failed)(link.is_mix, &error.message),
+                )
+            }
+            Err(YtDlpFailure::Cancelled) => {
+                error!(
+                    id,
+                    "the engine reported a cancelled playlist resolve, which is never requested"
+                );
+                restore_before_expansion(&mut state.items[index], before);
+                self.sink.item_updated(&state.items[index]);
+                (
+                    NoticeLevel::Error,
+                    (texts.playlist_load_failed)(link.is_mix, &unexpected_resolve_cancel().message),
+                )
+            }
+        };
+        self.sink.notice(notice(level, text));
+        self.persist(&state);
+    }
+
+    /// Builds items for the entries not already in the queue, taking the
+    /// format and position of the item at `index`, and reports unavailable
+    /// entries. The caller decides what happens to that item.
+    fn playlist_items(
         &self,
         state: &mut State,
         index: usize,
-        title: Option<String>,
+        title: Option<&str>,
         entries: Vec<VideoMetadata>,
         unavailable: u32,
-    ) {
+    ) -> Expansion {
         let placeholder = state.items[index].clone();
         let mut queued: HashSet<String> = state
             .items
@@ -915,21 +1107,14 @@ impl<E: Engine, S: Sink> Inner<E, S> {
         if skipped > 0 {
             self.sink.notice(notice(
                 NoticeLevel::Info,
-                (self.texts().playlist_skipped)(skipped, title.as_deref()),
+                (self.texts().playlist_skipped)(skipped, title),
             ));
         }
-        if expanded.is_empty() {
-            state.items[index].status = DownloadStatus::MetadataFailed {
-                error: FriendlyError {
-                    kind: ErrorKind::EmptyPlaylist,
-                    message: EMPTY_PLAYLIST_MESSAGE.to_string(),
-                    detail: format!(
-                        "{total} entries listed, {already_queued} already in the queue, {skipped} unavailable"
-                    ),
-                },
-            };
-        } else {
-            state.items.splice(index..=index, expanded);
+        Expansion {
+            items: expanded,
+            total,
+            already_queued,
+            skipped,
         }
     }
 
@@ -1220,6 +1405,25 @@ fn file_exists(path: &Path) -> bool {
             warn!(path = %path.display(), error = %e, "checking whether a path exists failed");
             false
         }
+    }
+}
+
+fn restore_before_expansion(item: &mut DownloadItem, before: BeforeExpansion) {
+    info!(
+        id = item.id,
+        to = before.status.name(),
+        "expanding the playlist added no videos, restoring the item"
+    );
+    item.status = before.status;
+    item.metadata = before.metadata;
+    item.previous_download = before.previous_download;
+}
+
+fn unexpected_resolve_cancel() -> FriendlyError {
+    FriendlyError {
+        kind: ErrorKind::Other,
+        message: "Looking up this link stopped unexpectedly. Retry to try again.".to_string(),
+        detail: "the engine returned Cancelled for a resolve".to_string(),
     }
 }
 

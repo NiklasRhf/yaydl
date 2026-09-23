@@ -26,6 +26,9 @@ struct Pending {
 #[derive(Default)]
 struct FakeEngine {
     resolves: Mutex<HashMap<String, std::result::Result<Resolved, YtDlpFailure>>>,
+    playlists: Mutex<HashMap<String, std::result::Result<Resolved, YtDlpFailure>>>,
+    /// Playlist resolves by URL that wait until the test sends on the gate.
+    playlist_gates: Mutex<HashMap<String, oneshot::Receiver<()>>>,
     /// Running downloads by URL, completed by the test through `finish`.
     pending: Mutex<HashMap<String, Pending>>,
     started: Mutex<Vec<String>>,
@@ -38,6 +41,22 @@ impl FakeEngine {
             .lock()
             .unwrap()
             .insert(url.to_string(), result);
+    }
+
+    fn script_playlist(&self, url: &str, result: std::result::Result<Resolved, YtDlpFailure>) {
+        self.playlists
+            .lock()
+            .unwrap()
+            .insert(url.to_string(), result);
+    }
+
+    fn gate_playlist(&self, url: &str) -> oneshot::Sender<()> {
+        let (open, gate) = oneshot::channel();
+        self.playlist_gates
+            .lock()
+            .unwrap()
+            .insert(url.to_string(), gate);
+        open
     }
 
     fn running(&self) -> Vec<String> {
@@ -88,6 +107,29 @@ impl Engine for FakeEngine {
                 Err(YtDlpFailure::Failed(FriendlyError {
                     kind: ErrorKind::Other,
                     message: format!("unscripted resolve of {url}"),
+                    detail: String::new(),
+                }))
+            })
+    }
+
+    async fn resolve_playlist(
+        &self,
+        url: &str,
+        _run: &RunOptions,
+    ) -> std::result::Result<Resolved, YtDlpFailure> {
+        let gate = self.playlist_gates.lock().unwrap().remove(url);
+        if let Some(gate) = gate {
+            gate.await.expect("the test to open the playlist gate");
+        }
+        self.playlists
+            .lock()
+            .unwrap()
+            .get(url)
+            .cloned()
+            .unwrap_or_else(|| {
+                Err(YtDlpFailure::Failed(FriendlyError {
+                    kind: ErrorKind::Other,
+                    message: format!("unscripted playlist resolve of {url}"),
                     detail: String::new(),
                 }))
             })
@@ -916,6 +958,296 @@ async fn removing_an_item_while_it_resolves_drops_the_result() {
 
     tokio::time::sleep(Duration::from_millis(20)).await;
     assert!(h.queue.get_queue().is_empty());
+}
+
+const LIST_LINK: &str = "https://www.youtube.com/watch?v=e1&list=PLtest";
+const MIX_LINK: &str = "https://www.youtube.com/watch?v=e1&list=RDe1";
+
+fn watch(id: &str) -> String {
+    format!("https://www.youtube.com/watch?v={id}")
+}
+
+fn playlist(title: Option<&str>, ids: &[&str], unavailable: u32) -> Resolved {
+    Resolved::Playlist {
+        title: title.map(str::to_string),
+        entries: ids.iter().map(|id| meta(&watch(id), id)).collect(),
+        unavailable,
+    }
+}
+
+impl Harness {
+    async fn until_notice(&self) {
+        self.until("a notice", |h| !h.sink.notices().is_empty())
+            .await;
+    }
+}
+
+#[tokio::test]
+async fn a_video_link_expands_into_its_playlist_in_place() {
+    let h = Harness::new();
+    let before = h.ready("https://yt.test/before").await;
+    let link = h.ready(LIST_LINK).await;
+    let video = OutputFormat::Video {
+        quality: VideoQuality::P720,
+    };
+    h.queue.set_item_format(link, video).unwrap();
+    let after = h.ready("https://yt.test/after").await;
+    h.engine.script_playlist(
+        LIST_LINK,
+        Ok(playlist(Some("Road Trip"), &["e1", "e2", "e3"], 0)),
+    );
+
+    h.queue.expand_playlist(link).unwrap();
+    assert_eq!(
+        h.sink
+            .count(&Event::Updated(link, "resolving metadata".to_string())),
+        1
+    );
+    h.until("the link to be replaced", |h| {
+        h.queue.get_queue().iter().all(|i| i.id != link)
+    })
+    .await;
+
+    let queue = h.queue.get_queue();
+    let urls: Vec<&str> = queue.iter().map(|i| i.url.as_str()).collect();
+    assert_eq!(
+        urls,
+        vec![
+            "https://yt.test/after".to_string(),
+            watch("e3"),
+            watch("e2"),
+            watch("e1"),
+            "https://yt.test/before".to_string(),
+        ]
+    );
+    let entries: Vec<&DownloadItem> = queue.iter().filter(|i| i.url.contains("watch")).collect();
+    assert!(entries.iter().all(|i| i.id > after), "entries get new ids");
+    assert!(entries
+        .iter()
+        .all(|i| i.format == video && i.status == DownloadStatus::Ready && i.metadata.is_some()));
+    assert!(queue.iter().any(|i| i.id == before));
+    assert_eq!(
+        h.sink.notices(),
+        vec![Notice {
+            level: NoticeLevel::Success,
+            text: "Added 3 videos from Road Trip.".to_string()
+        }]
+    );
+    let persisted = h.persisted();
+    let persisted_urls: Vec<&str> = persisted["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["url"].as_str().unwrap())
+        .collect();
+    assert!(!persisted_urls.contains(&LIST_LINK));
+    assert_eq!(persisted_urls.len(), 5);
+}
+
+#[tokio::test]
+async fn expanding_a_mix_skips_queued_entries_and_reports_unavailable_ones() {
+    let h = Harness::new();
+    let queued = h.ready(&watch("e2")).await;
+    let link = h.ready(MIX_LINK).await;
+    h.engine
+        .script_playlist(MIX_LINK, Ok(playlist(None, &["e1", "e2", "e3"], 1)));
+
+    h.queue.expand_playlist(link).unwrap();
+    h.until("the link to be replaced", |h| {
+        h.queue.get_queue().iter().all(|i| i.id != link)
+    })
+    .await;
+
+    let urls: Vec<String> = h.queue.get_queue().into_iter().map(|i| i.url).collect();
+    assert_eq!(urls, vec![watch("e3"), watch("e1"), watch("e2")]);
+    assert_eq!(h.item(queued).url, watch("e2"), "the queued entry is kept");
+    assert_eq!(
+        h.sink.notices(),
+        vec![
+            Notice {
+                level: NoticeLevel::Info,
+                text: "Skipped 1 unavailable video from the playlist.".to_string()
+            },
+            Notice {
+                level: NoticeLevel::Success,
+                text: "Added 2 videos from the mix.".to_string()
+            },
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_playlist_already_in_the_queue_restores_the_item() {
+    let h = Harness::new();
+    h.ready(&watch("e1")).await;
+    h.ready(&watch("e2")).await;
+    let link = h.ready(LIST_LINK).await;
+    let snapshot = h.item(link);
+    h.engine
+        .script_playlist(LIST_LINK, Ok(playlist(Some("Road Trip"), &["e1", "e2"], 0)));
+
+    h.queue.expand_playlist(link).unwrap();
+    h.until_notice().await;
+
+    assert_eq!(h.item(link), snapshot);
+    assert_eq!(h.queue.get_queue().len(), 3);
+    assert_eq!(
+        h.sink.notices(),
+        vec![Notice {
+            level: NoticeLevel::Info,
+            text: "Every video of this playlist is already in the queue.".to_string()
+        }]
+    );
+    assert_eq!(h.persisted()["items"][2]["status"]["state"], "ready");
+}
+
+#[tokio::test]
+async fn an_empty_playlist_restores_the_item() {
+    let h = Harness::new();
+    let link = h.ready(MIX_LINK).await;
+    let snapshot = h.item(link);
+    h.engine
+        .script_playlist(MIX_LINK, Ok(playlist(None, &[], 0)));
+
+    h.queue.expand_playlist(link).unwrap();
+    h.until_notice().await;
+
+    assert_eq!(h.item(link), snapshot);
+    assert_eq!(
+        h.sink.notices(),
+        vec![Notice {
+            level: NoticeLevel::Info,
+            text: "This mix has no downloadable videos.".to_string()
+        }]
+    );
+}
+
+#[tokio::test]
+async fn a_single_video_result_restores_status_metadata_and_previous_download() {
+    let h = Harness::new();
+    let kept = h.out().join("kept.mp3");
+    fs::write(&kept, "abc").unwrap();
+    h.record_history(history_entry(90, &video_id(LIST_LINK), kept));
+    let link = h.ready(LIST_LINK).await;
+    let snapshot = h.item(link);
+    assert!(snapshot.previous_download.is_some());
+    h.engine.script_playlist(
+        LIST_LINK,
+        Ok(Resolved::Single(meta(&watch("other"), "other"))),
+    );
+
+    h.queue.expand_playlist(link).unwrap();
+    h.until_notice().await;
+
+    assert_eq!(h.item(link), snapshot);
+    assert_eq!(
+        h.sink.notices(),
+        vec![Notice {
+            level: NoticeLevel::Error,
+            text: "YouTube returned a single video instead of the playlist.".to_string()
+        }]
+    );
+}
+
+#[tokio::test]
+async fn a_failed_playlist_load_restores_a_cancelled_item() {
+    let h = Harness::with(|dir| {
+        let items = vec![DownloadItem {
+            url: LIST_LINK.to_string(),
+            ..item(1, DownloadStatus::Cancelled)
+        }];
+        let file = serde_json::json!({ "version": 1, "next_id": 2, "items": items });
+        fs::write(dir.join(QUEUE_FILE), file.to_string()).unwrap();
+    });
+    let snapshot = h.item(1);
+    h.engine
+        .script_playlist(LIST_LINK, Err(failure("No internet connection.")));
+
+    h.queue.expand_playlist(1).unwrap();
+    h.until_notice().await;
+
+    assert_eq!(h.item(1), snapshot);
+    assert_eq!(h.persisted()["items"][0]["status"]["state"], "cancelled");
+    assert_eq!(
+        h.sink.notices(),
+        vec![Notice {
+            level: NoticeLevel::Error,
+            text: "Loading the playlist failed: No internet connection.".to_string()
+        }]
+    );
+}
+
+#[tokio::test]
+async fn expanding_rejects_other_states_and_links_without_a_playlist() {
+    let h = Harness::with(|dir| {
+        let items = vec![DownloadItem {
+            url: LIST_LINK.to_string(),
+            file_path: Some(dir.join("done.mp3")),
+            ..item(1, DownloadStatus::Finished)
+        }];
+        let file = serde_json::json!({ "version": 1, "next_id": 2, "items": items });
+        fs::write(dir.join(QUEUE_FILE), file.to_string()).unwrap();
+    });
+    let plain = h.ready("https://www.youtube.com/watch?v=plain").await;
+
+    let finished = h.queue.expand_playlist(1).unwrap_err();
+    assert!(
+        matches!(&finished, YaydlError::InvalidState { action, state } if action == "add the playlist of" && state == "finished"),
+        "{finished:?}"
+    );
+    let no_list = h.queue.expand_playlist(plain).unwrap_err();
+    assert!(
+        matches!(&no_list, YaydlError::InvalidState { state, .. } if state == "a link without a playlist"),
+        "{no_list:?}"
+    );
+    assert!(matches!(
+        h.queue.expand_playlist(999),
+        Err(YaydlError::UnknownDownload(999))
+    ));
+    assert_eq!(h.status(1), "finished");
+    assert_eq!(h.status(plain), "ready");
+    assert!(h.sink.notices().is_empty());
+}
+
+#[tokio::test]
+async fn removing_an_item_while_its_playlist_loads_drops_the_result() {
+    let h = Harness::new();
+    let link = h.ready(LIST_LINK).await;
+    h.engine
+        .script_playlist(LIST_LINK, Ok(playlist(Some("Road Trip"), &["e1", "e2"], 0)));
+    let open = h.engine.gate_playlist(LIST_LINK);
+
+    h.queue.expand_playlist(link).unwrap();
+    assert!(matches!(
+        h.queue.expand_playlist(link),
+        Err(YaydlError::InvalidState { .. })
+    ));
+    h.queue.remove_item(link).unwrap();
+    open.send(()).unwrap();
+
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert!(h.queue.get_queue().is_empty());
+    assert!(h.sink.notices().is_empty());
+    assert_eq!(h.persisted()["items"], serde_json::json!([]));
+}
+
+#[tokio::test]
+async fn the_expansion_notice_follows_the_language() {
+    let h = Harness::new();
+    let mut settings = h.settings.get();
+    settings.language = Language::German;
+    h.settings.update(settings).unwrap();
+    let link = h.ready(LIST_LINK).await;
+    h.engine
+        .script_playlist(LIST_LINK, Ok(playlist(Some("Road Trip"), &["e1"], 0)));
+
+    h.queue.expand_playlist(link).unwrap();
+    h.until_notice().await;
+
+    assert_eq!(
+        h.sink.notices()[0].text,
+        "1 Video aus Road Trip hinzugefügt."
+    );
 }
 
 fn item(id: DownloadId, status: DownloadStatus) -> DownloadItem {

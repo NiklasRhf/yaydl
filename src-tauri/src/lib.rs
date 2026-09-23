@@ -140,6 +140,7 @@ pub fn run() {
             commands::add_from_clipboard,
             commands::start_download,
             commands::retry_download,
+            commands::expand_playlist,
             commands::cancel_download,
             commands::remove_item,
             commands::open_file,

@@ -76,6 +76,11 @@ pub async fn retry_download(queue: State<'_, AppQueue>, id: DownloadId) -> Resul
 }
 
 #[tauri::command]
+pub async fn expand_playlist(queue: State<'_, AppQueue>, id: DownloadId) -> Result<()> {
+    queue.expand_playlist(id)
+}
+
+#[tauri::command]
 pub async fn cancel_download(queue: State<'_, AppQueue>, id: DownloadId) -> Result<()> {
     queue.cancel_download(id)
 }
