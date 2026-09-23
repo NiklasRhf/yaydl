@@ -2,6 +2,34 @@
 
 Yet Another YouTube Downloader
 
+## Using yaydl
+
+- **Add links** by typing or pasting them into the input field, by pressing Ctrl+V anywhere in the
+  window, or by dragging links onto it. Several links separated by spaces or new lines are added at
+  once, and a playlist link expands into one entry per video. Links already in the queue are
+  skipped.
+- **Pick a format** per entry before it starts: MP3, M4A, Opus or FLAC audio, or MP4 video at best,
+  1080p, 720p or 480p. The default for new entries is set in Settings.
+- **Rename** an entry before the download to choose the file name, or afterwards to rename the file
+  on disk.
+- **Parallel downloads** run up to the limit set in Settings (1 to 5, default 2). The rest wait in
+  the queue and start as slots free up. The queue survives a restart. Downloads that were running
+  when yaydl closed show up as interrupted and can be retried.
+- **Duplicate warning**: starting a video you already downloaded in the same format, whose file still
+  exists, asks for confirmation first.
+- **Statistics** show downloads per day, week or month, the busiest hours and weekdays, streaks, top
+  uploaders and formats, built from the download history.
+- **Age-restricted or members-only videos** need cookies from a browser where you are signed in.
+  Choose that browser under "Cookies from browser" in Settings.
+- A system notification reports when a batch of downloads is done while the window is in the
+  background. It can be turned off in Settings.
+
+Settings are stored in `~/.config/com.yaydl/settings.toml` on Linux and
+`%APPDATA%\com.yaydl\settings.toml` on Windows. The queue (`queue.json`) and the download history
+(`history.json`) are stored in `~/.local/share/com.yaydl/` on Linux and `%APPDATA%\com.yaydl\` on
+Windows. A file yaydl cannot read is moved aside as `<name>.invalid-<timestamp>` and reported in the
+window, never silently overwritten.
+
 ## How yt-dlp updates
 
 The yt-dlp shipped inside the bundle is only a bootstrap. On first run yaydl copies it into the
@@ -14,13 +42,14 @@ updated at runtime.
 
 ## Logs
 
-yaydl writes a log file next to its application data, at `~/.local/share/com.yaydl/logs/yaydl.log`
-on Linux and `%LOCALAPPDATA%\com.yaydl\logs\yaydl.log` on Windows, and mirrors the same lines to
-stderr when started from a terminal. It records startup paths, every yt-dlp invocation with its
-exit code, update checks, and what the window itself did, including a panic in the UI. Settings has
-a "Show logs" button that displays the last 300 lines and copies them to the clipboard, which is
-the quickest way to get a report out of a packaged build. The default verbosity is `info` for
-everything and `debug` for the backend; set `YAYDL_LOG=debug` or `YAYDL_LOG=yaydl_lib=trace` to
+yaydl writes one log file per day and keeps the last 7, in
+`~/.local/share/com.yaydl/logs/` on Linux and `%LOCALAPPDATA%\com.yaydl\logs\` on Windows. Files are
+named `yaydl.<YYYY-MM-DD>.log`, and the same lines go to stderr when yaydl is started from a
+terminal. The log records startup paths, every yt-dlp invocation with its exit code, update checks,
+queue changes, and what the window itself did, including a panic in the UI. Settings has a "Show
+logs" button that displays the tail of today's file and copies it to the clipboard, which is the
+quickest way to get a report out of a packaged build. The default verbosity is `info` for
+everything and `debug` for the backend. Set `YAYDL_LOG=debug` or `YAYDL_LOG=yaydl_lib=trace` to
 raise it. An invalid `YAYDL_LOG` stops the app at startup rather than falling back silently.
 
 ## Liability & License notice
