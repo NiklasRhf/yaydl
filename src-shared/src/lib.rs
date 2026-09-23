@@ -530,6 +530,44 @@ pub struct AddUrlsResult {
     pub invalid: Vec<String>,
 }
 
+/// The playlist named by a link to a single video.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaylistLink {
+    pub list_id: String,
+    /// YouTube Mixes (`RD…`) are generated per viewer and have no playlist
+    /// page, so they can only be expanded from a video link.
+    pub is_mix: bool,
+}
+
+/// A YouTube link to one video that also names the playlist it was opened
+/// from, e.g. `watch?v=X&list=Y`. yaydl adds only the video from such a link
+/// until the user asks for the whole playlist (`expand_playlist`).
+pub fn playlist_in_video_link(link: &str) -> Option<PlaylistLink> {
+    let url = url::Url::parse(link).ok()?;
+    let host = url.host_str()?;
+    let host = host.strip_prefix("www.").unwrap_or(host);
+    let query_value = |key: &str| {
+        url.query_pairs()
+            .find(|(k, v)| k == key && !v.is_empty())
+            .map(|(_, v)| v.into_owned())
+    };
+    let names_video = match host {
+        "youtube.com" | "m.youtube.com" | "music.youtube.com" => {
+            url.path() == "/watch" && query_value("v").is_some()
+        }
+        "youtu.be" => url.path().len() > 1,
+        _ => false,
+    };
+    if !names_video {
+        return None;
+    }
+    let list_id = query_value("list")?;
+    Some(PlaylistLink {
+        is_mix: list_id.starts_with("RD"),
+        list_id,
+    })
+}
+
 const FORBIDDEN_FILE_CHARS: [char; 9] = ['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
 const RESERVED_WINDOWS_NAMES: [&str; 22] = [
     "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
@@ -913,6 +951,32 @@ mod tests {
         assert_eq!(Language::System.resolve(None), Locale::En);
         assert_eq!(Language::German.resolve(Some("en-US")), Locale::De);
         assert_eq!(Language::English.resolve(Some("de-DE")), Locale::En);
+    }
+
+    #[test]
+    fn playlist_links_are_detected_only_on_video_links() {
+        let pl = playlist_in_video_link(
+            "https://www.youtube.com/watch?v=viuYLuyILeo&list=PLhCCfdELbr0Pi9RLMNAGhzKyF50LqlB4U",
+        )
+        .unwrap();
+        assert_eq!(pl.list_id, "PLhCCfdELbr0Pi9RLMNAGhzKyF50LqlB4U");
+        assert!(!pl.is_mix);
+        let mix = playlist_in_video_link(
+            "https://www.youtube.com/watch?v=onVL3uQD8UY&list=RDyrc0yef1xoU&index=4",
+        )
+        .unwrap();
+        assert!(mix.is_mix);
+        assert!(playlist_in_video_link("https://youtu.be/abc?list=PLx").is_some());
+        assert!(playlist_in_video_link("https://music.youtube.com/watch?v=a&list=OLx").is_some());
+        for none in [
+            "https://www.youtube.com/playlist?list=PLx",
+            "https://www.youtube.com/watch?v=abc",
+            "https://www.youtube.com/watch?v=abc&list=",
+            "https://vimeo.com/watch?v=abc&list=PLx",
+            "not a url",
+        ] {
+            assert_eq!(playlist_in_video_link(none), None, "{none}");
+        }
     }
 
     #[test]
