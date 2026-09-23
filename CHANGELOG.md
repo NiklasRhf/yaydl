@@ -1,3 +1,9 @@
+##  v0.4.1 (2026-09-23)
+
+* fix: downloads on Windows no longer fail with "yt-dlp reported a finished file that is not on disk" when the title contains characters Windows replaces in file names, such as quotes
+* feat: larger default window (1280x860), shrunk to fit small screens
+* build: Arch Linux package (PKGBUILD) that runs on the system WebKitGTK, smoother than the AppImage on Arch
+
 ##  v0.4.0 (2026-09-23)
 
 * feat: download queue with several links at once, playlist expansion, and per-entry format and file name
