@@ -28,6 +28,42 @@ use ytdlp::{ProcessRunner, YtDlp};
 
 type SetupResult = std::result::Result<(), Box<dyn std::error::Error>>;
 
+/// The configured 1280x860 is taller than a 1080p screen at 150% scaling
+/// (1280x720 logical), a common Windows laptop setup, so the window shrinks to
+/// at most 90% of the monitor's work area.
+fn fit_main_window_to_monitor(app: &App) -> Result<(), tauri::Error> {
+    const MAX_SHARE: f64 = 0.9;
+    let Some(window) = app.get_webview_window("main") else {
+        warn!("no main window to fit to the monitor");
+        return Ok(());
+    };
+    let Some(monitor) = window.current_monitor()?.or(window.primary_monitor()?) else {
+        // Wayland reports no monitor before the window is mapped.
+        info!("monitor unknown at startup, keeping the configured window size");
+        return Ok(());
+    };
+    let scale = monitor.scale_factor();
+    let area = monitor.work_area().size.to_logical::<f64>(scale);
+    let size = window.inner_size()?.to_logical::<f64>(scale);
+    let fitted = tauri::LogicalSize::new(
+        size.width.min(area.width * MAX_SHARE),
+        size.height.min(area.height * MAX_SHARE),
+    );
+    info!(
+        monitor_width = area.width,
+        monitor_height = area.height,
+        scale,
+        width = fitted.width,
+        height = fitted.height,
+        "initial window size"
+    );
+    if fitted.width < size.width || fitted.height < size.height {
+        window.set_size(fitted)?;
+        window.center()?;
+    }
+    Ok(())
+}
+
 fn setup(app: &mut App) -> SetupResult {
     let handle = app.handle().clone();
     let config_dir = app.path().app_config_dir()?;
@@ -41,6 +77,7 @@ fn setup(app: &mut App) -> SetupResult {
         settings::default_output_dir,
     )?;
     i18n::log_startup_locale(&loaded.settings);
+    fit_main_window_to_monitor(app)?;
     for n in loaded.notices {
         notices.notify(&handle, n);
     }
