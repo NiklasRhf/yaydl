@@ -8,6 +8,10 @@ Yet Another YouTube Downloader
   window, or by dragging links onto it. Several links separated by spaces or new lines are added at
   once, and a playlist link expands into one entry per video. Links already in the queue are
   skipped.
+- **Videos opened from a playlist** (a `watch?v=...&list=...` link) add only that video. Its row
+  then offers "Add whole playlist", which replaces the entry with every video of the playlist. This
+  also works for YouTube Mixes, which have no playlist page of their own. To add a regular playlist
+  right away, paste its `https://www.youtube.com/playlist?list=...` link instead.
 - **Pick a format** per entry before it starts: MP3, M4A, Opus or FLAC audio, or MP4 video at best,
   1080p, 720p or 480p. The default for new entries is set in Settings.
 - **Rename** an entry before the download to choose the file name, or afterwards to rename the file
