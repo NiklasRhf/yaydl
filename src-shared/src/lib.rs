@@ -346,18 +346,24 @@ pub struct DownloadItem {
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum DownloadStatus {
     ResolvingMetadata,
-    MetadataFailed { error: FriendlyError },
+    MetadataFailed {
+        error: FriendlyError,
+    },
     Ready,
     /// The user started a download that matches an earlier one; waits for
     /// `confirm_duplicate`.
     AwaitingDuplicateConfirmation,
     /// Waiting for a free concurrency slot.
     Queued,
-    Downloading { progress: Progress },
+    Downloading {
+        progress: Progress,
+    },
     /// ffmpeg post-processing (extract audio, merge, embed tags).
     Processing,
     Finished,
-    Failed { error: FriendlyError },
+    Failed {
+        error: FriendlyError,
+    },
     Cancelled,
 }
 
@@ -381,7 +387,9 @@ impl DownloadStatus {
     pub fn is_active(&self) -> bool {
         matches!(
             self,
-            DownloadStatus::Queued | DownloadStatus::Downloading { .. } | DownloadStatus::Processing
+            DownloadStatus::Queued
+                | DownloadStatus::Downloading { .. }
+                | DownloadStatus::Processing
         )
     }
 
@@ -832,8 +840,14 @@ mod tests {
     fn file_stem_validation() {
         assert!(validate_file_stem("My Song (live)").is_ok());
         assert!(validate_file_stem("Ünïcödé 日本").is_ok());
-        for bad in ["", "  ", " lead", "trail ", "a/b", "a\\b", "what?", "end.", "CON", "con.txt", "a\u{7}b"] {
-            assert!(validate_file_stem(bad).is_err(), "{bad:?} should be rejected");
+        for bad in [
+            "", "  ", " lead", "trail ", "a/b", "a\\b", "what?", "end.", "CON", "con.txt",
+            "a\u{7}b",
+        ] {
+            assert!(
+                validate_file_stem(bad).is_err(),
+                "{bad:?} should be rejected"
+            );
         }
         assert!(validate_file_stem(&"x".repeat(MAX_FILE_STEM_CHARS + 1)).is_err());
     }

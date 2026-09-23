@@ -10,8 +10,8 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
-use tracing::{debug, info, warn};
 pub use tokio_util::sync::CancellationToken;
+use tracing::{debug, info, warn};
 use yaydl_shared::{
     Browser, FriendlyError, OutputFormat, Progress, VideoMetadata, YtDlpChannel, YtDlpError,
     YtDlpUpdateEvent,
