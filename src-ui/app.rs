@@ -102,7 +102,10 @@ fn Sidebar() -> impl IntoView {
             aria-label=move || t().nav_label
             class="flex w-52 shrink-0 flex-col gap-1 border-r border-zinc-200 bg-zinc-100/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60"
         >
-            <p class="px-3 pb-4 pt-2 text-xl font-semibold tracking-tight">"yaydl"</p>
+            <div class="flex items-center gap-2.5 px-3 pb-4 pt-2">
+                <img src="/icon.svg" alt="" class="h-8 w-8 shrink-0" />
+                <p class="text-xl font-semibold tracking-tight">"yaydl"</p>
+            </div>
             <NavItem page=Page::Downloads label=|t| t.nav_downloads icon=icondata::LuDownload />
             <NavItem page=Page::Statistics label=|t| t.nav_statistics icon=icondata::LuChartColumn />
             <NavItem page=Page::Settings label=|t| t.nav_settings icon=icondata::LuSettings />
