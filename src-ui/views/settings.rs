@@ -5,14 +5,15 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_icons::Icon;
 use yaydl_shared::{
-    Browser, Language, OutputFormat, Settings, SettingsArgs, Theme, YtDlpChannel, YtDlpStatus,
-    YtDlpUpdateEvent, MAX_CONCURRENT_DOWNLOADS,
+    AppInfo, AppUpdateInfo, Browser, Language, OutputFormat, Settings, SettingsArgs, Theme,
+    YtDlpChannel, YtDlpStatus, YtDlpUpdateEvent, MAX_CONCURRENT_DOWNLOADS,
 };
 
 use crate::i18n::{format_label, texts_now, use_texts, Text};
 use crate::ipc::{call, call0, log_to_backend};
 use crate::log_viewer::LogViewer;
 use crate::state::{use_app, AppState};
+use crate::update_banner::UpdateState;
 use crate::views::item::capitalize;
 
 /// Sends the whole settings with one field changed. The controls render from
@@ -109,6 +110,7 @@ pub fn SettingsPage() -> impl IntoView {
             }}
             <YtDlpSection />
             <LogsSection />
+            <AboutSection />
         </div>
     }
 }
@@ -479,6 +481,67 @@ fn LogsSection() -> impl IntoView {
                     <LogViewer />
                 </Show>
             </div>
+        </Section>
+    }
+}
+
+#[component]
+fn AboutSection() -> impl IntoView {
+    let state = use_app();
+    let t = use_texts();
+    let info = RwSignal::new(None::<Result<AppInfo, String>>);
+    let checking = RwSignal::new(false);
+    spawn_local(async move {
+        info.set(Some(call0::<AppInfo>("get_app_info").await));
+    });
+
+    let check_now = move |_| {
+        checking.set(true);
+        spawn_local(async move {
+            let result = call0::<Option<AppUpdateInfo>>("check_app_update").await;
+            let t = texts_now(state);
+            match result {
+                Ok(Some(update)) => state.update.set(UpdateState::Available(update)),
+                Ok(None) => state.toasts.info(t.up_to_date),
+                Err(e) => state.toasts.error((t.update_check_failed)(&e)),
+            }
+            checking.set(false);
+        });
+    };
+
+    let open_notes = move |_| {
+        spawn_local(async move {
+            if let Err(e) = call0::<()>("open_release_notes").await {
+                state.toasts.error(e);
+            }
+        });
+    };
+
+    view! {
+        <Section title=|t| t.section_about>
+            <Row label=|t| t.app_version>
+                <p class="font-mono text-sm text-zinc-600 dark:text-zinc-300">
+                    {move || match info.get() {
+                        None => t().loading.to_string(),
+                        Some(Ok(i)) => i.version,
+                        Some(Err(e)) => (t().version_unknown)(&e),
+                    }}
+                </p>
+            </Row>
+            <Row label=|t| t.update_label>
+                <button class="btn btn-secondary" disabled=move || checking.get() on:click=check_now>
+                    <span class=move || if checking.get() { "animate-spin" } else { "" }>
+                        <Icon icon=icondata::LuRefreshCw />
+                    </span>
+                    {move || if checking.get() { t().checking_for_updates } else { t().check_for_updates }}
+                </button>
+            </Row>
+            <Row label=|t| t.release_notes help=|t| t.release_notes_help>
+                <button class="btn btn-secondary" on:click=open_notes>
+                    <Icon icon=icondata::LuExternalLink />
+                    {move || t().release_notes}
+                </button>
+            </Row>
         </Section>
     }
 }

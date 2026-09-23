@@ -743,6 +743,11 @@ pub struct AppUpdateInfo {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct AppInfo {
+    pub version: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct AppUpdateProgress {
     pub downloaded_bytes: u64,
     pub total_bytes: Option<u64>,

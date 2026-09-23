@@ -1,7 +1,8 @@
 use tauri::{AppHandle, Emitter, Runtime};
+use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_updater::{Update, UpdaterExt};
 use tracing::{error, info};
-use yaydl_shared::{events, AppUpdateInfo, AppUpdateProgress, YaydlError};
+use yaydl_shared::{events, AppInfo, AppUpdateInfo, AppUpdateProgress, YaydlError};
 
 async fn check<R: Runtime>(app: &AppHandle<R>) -> Result<Option<Update>, YaydlError> {
     let updater = app.updater_builder().build().map_err(|e| {
@@ -115,4 +116,23 @@ mod simulation {
         }
         info!("simulated app update finished, not restarting");
     }
+}
+
+/// The release workflow tags every release as `yaydl-v<version>`.
+const RELEASE_TAG_URL: &str = "https://github.com/NiklasRhf/yaydl/releases/tag/yaydl-v";
+
+#[tauri::command]
+pub async fn get_app_info<R: Runtime>(app: AppHandle<R>) -> Result<AppInfo, YaydlError> {
+    Ok(AppInfo {
+        version: app.package_info().version.to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn open_release_notes<R: Runtime>(app: AppHandle<R>) -> Result<(), YaydlError> {
+    let url = format!("{RELEASE_TAG_URL}{}", app.package_info().version);
+    app.opener().open_url(&url, None::<&str>).map_err(|e| {
+        error!(%url, error = %e, "opening the release notes failed");
+        YaydlError::Open(format!("{url}: {e}"))
+    })
 }

@@ -161,6 +161,8 @@ pub fn run() {
             commands::update_yt_dlp,
             commands::take_startup_notices,
             app_update::check_app_update,
+            app_update::get_app_info,
+            app_update::open_release_notes,
             app_update::install_app_update,
             logging::ui_log,
             logging::get_recent_logs,
