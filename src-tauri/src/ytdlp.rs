@@ -946,12 +946,22 @@ enum PlaylistScope {
     WholePlaylist,
 }
 
+/// YouTube generates Mixes endlessly per viewer. yt-dlp returned 1100 to 3500
+/// entries (about 550 unique) for one Mix, so only the start is taken, about
+/// what YouTube's own Mix panel shows.
+pub const MIX_ENTRY_LIMIT: u32 = 50;
+
 fn resolve_args(url: &str, run: &RunOptions, scope: PlaylistScope) -> Vec<String> {
     let playlist = match scope {
         PlaylistScope::VideoOnly => "--no-playlist",
         PlaylistScope::WholePlaylist => "--yes-playlist",
     };
     let mut args = strings(&["-J", "--flat-playlist", playlist]);
+    let is_mix = yaydl_shared::playlist_in_video_link(url).is_some_and(|link| link.is_mix);
+    if matches!(scope, PlaylistScope::WholePlaylist) && is_mix {
+        args.push("--playlist-items".to_string());
+        args.push(format!("1:{MIX_ENTRY_LIMIT}"));
+    }
     push_cookies(&mut args, run);
     args.push("--".to_string());
     args.push(url.to_string());
@@ -1899,8 +1909,35 @@ mod tests {
     }
 
     #[test]
+    fn only_a_whole_mix_is_limited() {
+        let mix = "https://www.youtube.com/watch?v=onVL3uQD8UY&list=RDyrc0yef1xoU";
+        let limit = format!("1:{MIX_ENTRY_LIMIT}");
+        assert_eq!(
+            resolve_args(mix, &run_options(), PlaylistScope::WholePlaylist),
+            strings(&[
+                "-J",
+                "--flat-playlist",
+                "--yes-playlist",
+                "--playlist-items",
+                &limit,
+                "--",
+                mix
+            ])
+        );
+        assert_eq!(
+            resolve_args(mix, &run_options(), PlaylistScope::VideoOnly),
+            strings(&["-J", "--flat-playlist", "--no-playlist", "--", mix])
+        );
+        let playlist =
+            "https://www.youtube.com/watch?v=viuYLuyILeo&list=PLhCCfdELbr0Pi9RLMNAGhzKyF50LqlB4U";
+        assert!(
+            !resolve_args(playlist, &run_options(), PlaylistScope::WholePlaylist)
+                .contains(&"--playlist-items".to_string())
+        );
+    }
+    #[test]
     fn playlist_resolve_args_ask_for_the_whole_playlist() {
-        let url = "https://www.youtube.com/watch?v=x&list=RDy";
+        let url = "https://www.youtube.com/watch?v=x&list=PLy";
         assert_eq!(
             resolve_args(url, &run_options(), PlaylistScope::WholePlaylist),
             strings(&["-J", "--flat-playlist", "--yes-playlist", "--", url])
