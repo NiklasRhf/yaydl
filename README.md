@@ -23,6 +23,8 @@ Yet Another YouTube Downloader
   Choose that browser under "Cookies from browser" in Settings.
 - A system notification reports when a batch of downloads is done while the window is in the
   background. It can be turned off in Settings.
+- **Language** is set in Settings: System (German if the system language is German, English
+  otherwise), English or German.
 
 Settings are stored in `~/.config/com.yaydl/settings.toml` on Linux and
 `%APPDATA%\com.yaydl\settings.toml` on Windows. The queue (`queue.json`) and the download history
