@@ -7505,7 +7505,7 @@ checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
 
 [[package]]
 name = "yaydl"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "dirs 7.0.0",
  "gtk",
@@ -7539,7 +7539,7 @@ dependencies = [
 
 [[package]]
 name = "yaydl-shared"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
  "thiserror 2.0.20",
@@ -7548,7 +7548,7 @@ dependencies = [
 
 [[package]]
 name = "yaydl-ui"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "console_error_panic_hook",
  "icondata",
