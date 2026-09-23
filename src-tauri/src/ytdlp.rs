@@ -497,8 +497,30 @@ impl<R: Runner> YtDlp<R> {
         Ok(Some(event))
     }
 
+    /// Resolves only the video a link points to, even when it names a playlist.
     pub async fn resolve(&self, url: &str, run: &RunOptions) -> Result<Resolved, YtDlpFailure> {
-        let args = resolve_args(url, run);
+        self.resolve_scoped(url, run, PlaylistScope::VideoOnly)
+            .await
+    }
+
+    /// Resolves the playlist a video link was opened from, the only way to
+    /// list a YouTube Mix, which has no playlist page.
+    pub async fn resolve_playlist(
+        &self,
+        url: &str,
+        run: &RunOptions,
+    ) -> Result<Resolved, YtDlpFailure> {
+        self.resolve_scoped(url, run, PlaylistScope::WholePlaylist)
+            .await
+    }
+
+    async fn resolve_scoped(
+        &self,
+        url: &str,
+        run: &RunOptions,
+        scope: PlaylistScope,
+    ) -> Result<Resolved, YtDlpFailure> {
+        let args = resolve_args(url, run, scope);
         // Resolving has no cancel handle in the queue contract.
         let never = CancellationToken::new();
         let result = match self.resolve_once(&args, &never).await {
@@ -917,8 +939,19 @@ fn check(output: CommandOutput, args: &[String]) -> Result<CommandOutput, YtDlpE
 // Arguments
 // ---------------------------------------------------------------------------
 
-fn resolve_args(url: &str, run: &RunOptions) -> Vec<String> {
-    let mut args = strings(&["-J", "--flat-playlist", "--no-playlist"]);
+/// What yt-dlp resolves for a link that names both a video and a playlist.
+#[derive(Clone, Copy, Debug)]
+enum PlaylistScope {
+    VideoOnly,
+    WholePlaylist,
+}
+
+fn resolve_args(url: &str, run: &RunOptions, scope: PlaylistScope) -> Vec<String> {
+    let playlist = match scope {
+        PlaylistScope::VideoOnly => "--no-playlist",
+        PlaylistScope::WholePlaylist => "--yes-playlist",
+    };
+    let mut args = strings(&["-J", "--flat-playlist", playlist]);
     push_cookies(&mut args, run);
     args.push("--".to_string());
     args.push(url.to_string());
@@ -1844,7 +1877,7 @@ mod tests {
     fn resolve_args_with_and_without_cookies() {
         let url = "https://www.youtube.com/watch?v=x&list=y";
         assert_eq!(
-            resolve_args(url, &run_options()),
+            resolve_args(url, &run_options(), PlaylistScope::VideoOnly),
             strings(&["-J", "--flat-playlist", "--no-playlist", "--", url])
         );
         let with_cookies = RunOptions {
@@ -1852,13 +1885,38 @@ mod tests {
             ..run_options()
         };
         assert_eq!(
-            resolve_args(url, &with_cookies),
+            resolve_args(url, &with_cookies, PlaylistScope::VideoOnly),
             strings(&[
                 "-J",
                 "--flat-playlist",
                 "--no-playlist",
                 "--cookies-from-browser",
                 "chrome",
+                "--",
+                url
+            ])
+        );
+    }
+
+    #[test]
+    fn playlist_resolve_args_ask_for_the_whole_playlist() {
+        let url = "https://www.youtube.com/watch?v=x&list=RDy";
+        assert_eq!(
+            resolve_args(url, &run_options(), PlaylistScope::WholePlaylist),
+            strings(&["-J", "--flat-playlist", "--yes-playlist", "--", url])
+        );
+        let with_cookies = RunOptions {
+            cookies_from_browser: Some(Browser::Firefox),
+            ..run_options()
+        };
+        assert_eq!(
+            resolve_args(url, &with_cookies, PlaylistScope::WholePlaylist),
+            strings(&[
+                "-J",
+                "--flat-playlist",
+                "--yes-playlist",
+                "--cookies-from-browser",
+                "firefox",
                 "--",
                 url
             ])
@@ -2250,7 +2308,47 @@ mod tests {
         assert!(matches!(resolved, Resolved::Single(ref m) if m.video_id == "jNQXAC9IVRw"));
         assert_eq!(
             calls_of(&calls),
-            vec![resolve_args(VIDEO_URL, &run_options())]
+            vec![resolve_args(
+                VIDEO_URL,
+                &run_options(),
+                PlaylistScope::VideoOnly
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_playlist_parses_entries_and_self_heals_with_the_same_args() {
+        let url = "https://www.youtube.com/watch?v=Vh4O04Bpovw&list=PLx";
+        let (manager, calls, _dir) = manager(vec![
+            fail(STALE_EXTRACTOR),
+            ok(vec![out("2026.02.03")]),
+            ok(vec![out("Updated yt-dlp to nightly@2026.09.18.232920")]),
+            ok(vec![out("2026.09.18.232920")]),
+            ok(vec![out(PLAYLIST_JSON)]),
+        ]);
+
+        let resolved = manager.resolve_playlist(url, &run_options()).await;
+
+        let Ok(Resolved::Playlist {
+            entries,
+            unavailable,
+            ..
+        }) = resolved
+        else {
+            panic!("expected a playlist, got {resolved:?}");
+        };
+        assert_eq!(entries.len(), 2);
+        assert_eq!(unavailable, 5);
+        let resolve = resolve_args(url, &run_options(), PlaylistScope::WholePlaylist);
+        assert_eq!(
+            calls_of(&calls),
+            vec![
+                resolve.clone(),
+                version_args(),
+                update_args("nightly"),
+                version_args(),
+                resolve,
+            ]
         );
     }
 
@@ -2386,7 +2484,7 @@ mod tests {
         let resolved = manager.resolve(VIDEO_URL, &run_options()).await;
 
         assert!(matches!(resolved, Ok(Resolved::Single(_))), "{resolved:?}");
-        let resolve = resolve_args(VIDEO_URL, &run_options());
+        let resolve = resolve_args(VIDEO_URL, &run_options(), PlaylistScope::VideoOnly);
         assert_eq!(
             calls_of(&calls),
             vec![

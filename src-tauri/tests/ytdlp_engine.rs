@@ -213,24 +213,14 @@ fn required_env(name: &str) -> PathBuf {
     )
 }
 
-/// Hits YouTube with the real yt-dlp, so it only runs on request:
-/// `YAYDL_LIVE_YT_DLP=<yt-dlp binary> YAYDL_LIVE_FFMPEG_DIR=<dir with ffmpeg
-/// and ffprobe> cargo test -p yaydl --test ytdlp_engine -- --ignored --nocapture`
-#[tokio::test]
-#[ignore = "downloads from YouTube with the real yt-dlp"]
-async fn live_resolve_and_download_with_the_real_yt_dlp() {
-    let dir = tempfile::tempdir().unwrap();
+fn live_manager(dir: &Path) -> (YtDlp<ProcessRunner>, RunOptions) {
     let manager = YtDlp::new(
         ProcessRunner,
-        dir.path().join("data"),
+        dir.join("data"),
         required_env("YAYDL_LIVE_YT_DLP"),
         required_env("YAYDL_LIVE_FFMPEG_DIR"),
     );
     manager.ensure_installed().unwrap();
-    let run = RunOptions {
-        channel: YtDlpChannel::Nightly,
-        cookies_from_browser: None,
-    };
     // A recorded check keeps a transient failure from updating the bundled copy.
     fs::write(
         manager.state_file(),
@@ -243,6 +233,21 @@ async fn live_resolve_and_download_with_the_real_yt_dlp() {
         ),
     )
     .unwrap();
+    let run = RunOptions {
+        channel: YtDlpChannel::Nightly,
+        cookies_from_browser: None,
+    };
+    (manager, run)
+}
+
+/// Hits YouTube with the real yt-dlp, so it only runs on request:
+/// `YAYDL_LIVE_YT_DLP=<yt-dlp binary> YAYDL_LIVE_FFMPEG_DIR=<dir with ffmpeg
+/// and ffprobe> cargo test -p yaydl --test ytdlp_engine -- --ignored --nocapture`
+#[tokio::test]
+#[ignore = "downloads from YouTube with the real yt-dlp"]
+async fn live_resolve_and_download_with_the_real_yt_dlp() {
+    let dir = tempfile::tempdir().unwrap();
+    let (manager, run) = live_manager(dir.path());
 
     let single = manager
         .resolve(
@@ -303,6 +308,37 @@ async fn live_resolve_and_download_with_the_real_yt_dlp() {
         }
         assert!(events.lock().unwrap().contains(&DownloadEvent::Processing));
     }
+}
+
+/// Run like the test above.
+#[tokio::test]
+#[ignore = "resolves a YouTube playlist with the real yt-dlp"]
+async fn live_resolve_playlist_lists_the_playlist_of_a_video_link() {
+    let dir = tempfile::tempdir().unwrap();
+    let (manager, run) = live_manager(dir.path());
+
+    let resolved = manager
+        .resolve_playlist(
+            "https://www.youtube.com/watch?v=viuYLuyILeo&list=PLhCCfdELbr0Pi9RLMNAGhzKyF50LqlB4U",
+            &run,
+        )
+        .await
+        .unwrap();
+
+    let Resolved::Playlist {
+        title,
+        entries,
+        unavailable,
+    } = &resolved
+    else {
+        panic!("expected a playlist, got {resolved:?}");
+    };
+    println!(
+        "playlist {title:?}: {} entries, {unavailable} unavailable",
+        entries.len()
+    );
+    assert_eq!(entries.len() + *unavailable as usize, 13);
+    assert!(entries.iter().any(|e| e.video_id == "viuYLuyILeo"));
 }
 
 #[tokio::test]
