@@ -14,7 +14,7 @@ pub type DownloadId = u64;
 // Settings
 // ---------------------------------------------------------------------------
 
-pub const SETTINGS_VERSION: u32 = 2;
+pub const SETTINGS_VERSION: u32 = 3;
 pub const MAX_CONCURRENT_DOWNLOADS: u8 = 5;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -29,6 +29,7 @@ pub struct Settings {
     pub embed_metadata: bool,
     pub notify_on_finish: bool,
     pub cookies_from_browser: Option<Browser>,
+    pub language: Language,
 }
 
 impl Settings {
@@ -207,6 +208,54 @@ impl Theme {
 
     pub fn parse(value: &str) -> Option<Self> {
         Theme::ALL.into_iter().find(|t| t.as_str() == value)
+    }
+}
+
+/// The user's choice. `System` follows the OS locale, see [`Language::resolve`].
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Language {
+    #[default]
+    System,
+    English,
+    German,
+}
+
+/// The language texts are actually rendered in.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Locale {
+    En,
+    De,
+}
+
+impl Language {
+    pub const ALL: [Language; 3] = [Language::System, Language::English, Language::German];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Language::System => "system",
+            Language::English => "english",
+            Language::German => "german",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        Language::ALL.into_iter().find(|l| l.as_str() == value)
+    }
+
+    /// `system_tag` is a BCP 47 tag such as `de-AT` (the webview's
+    /// `navigator.language`, the backend's OS locale). Only German has a
+    /// translation, every other system language renders English.
+    pub fn resolve(self, system_tag: Option<&str>) -> Locale {
+        match self {
+            Language::English => Locale::En,
+            Language::German => Locale::De,
+            Language::System => match system_tag {
+                Some(tag) if tag.to_ascii_lowercase().starts_with("de") => Locale::De,
+                _ => Locale::En,
+            },
+        }
     }
 }
 
@@ -455,6 +504,10 @@ pub enum ErrorKind {
     DiskFull,
     /// The app exited while the download was running.
     Interrupted,
+    /// The configured output folder does not exist. `detail` holds the path.
+    OutputFolderMissing,
+    /// A playlist resolved to no downloadable entries.
+    EmptyPlaylist,
     Other,
 }
 
@@ -586,9 +639,8 @@ pub struct Statistics {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct StatsBucket {
-    /// Short label for an axis, e.g. `Sep 23`, `W38`, `Sep 2026`.
-    pub label: String,
-    /// First day of the bucket, `YYYY-MM-DD`.
+    /// First day of the bucket, `YYYY-MM-DD`. The UI derives localized labels
+    /// from it and the granularity.
     pub start_date: String,
     pub count: u32,
     pub bytes: u64,
@@ -850,6 +902,17 @@ mod tests {
             );
         }
         assert!(validate_file_stem(&"x".repeat(MAX_FILE_STEM_CHARS + 1)).is_err());
+    }
+
+    #[test]
+    fn system_language_resolves_from_the_tag() {
+        assert_eq!(Language::System.resolve(Some("de-AT")), Locale::De);
+        assert_eq!(Language::System.resolve(Some("DE")), Locale::De);
+        assert_eq!(Language::System.resolve(Some("en-US")), Locale::En);
+        assert_eq!(Language::System.resolve(Some("fr-FR")), Locale::En);
+        assert_eq!(Language::System.resolve(None), Locale::En);
+        assert_eq!(Language::German.resolve(Some("en-US")), Locale::De);
+        assert_eq!(Language::English.resolve(Some("de-DE")), Locale::En);
     }
 
     #[test]
