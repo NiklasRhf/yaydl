@@ -8,8 +8,8 @@ use std::{
 
 use tokio::sync::oneshot;
 use yaydl_shared::{
-    AudioCodec, DownloadItem, DownloadStatus, ErrorKind, FriendlyError, HistoryEntry, Notice,
-    NoticeLevel, OutputFormat, Progress, VideoMetadata, VideoQuality, YaydlError,
+    AudioCodec, DownloadItem, DownloadStatus, ErrorKind, FriendlyError, HistoryEntry, Language,
+    Notice, NoticeLevel, OutputFormat, Progress, VideoMetadata, VideoQuality, YaydlError,
 };
 
 use super::*;
@@ -215,9 +215,13 @@ impl Harness {
         let out = dir.path().join("out");
         fs::create_dir_all(&out).unwrap();
         prepare(dir.path());
+        // Pinned so notice texts do not depend on the machine's locale.
         let settings = Arc::new(SettingsStore::new(
             dir.path().join("settings.toml"),
-            default_settings(out),
+            Settings {
+                language: Language::English,
+                ..default_settings(out)
+            },
         ));
         let history_path = dir.path().join("history.json");
         let history = Arc::new(Mutex::new(History::load(history_path).unwrap()));
@@ -486,8 +490,34 @@ async fn playlist_expands_in_place_skipping_queued_urls() {
         h.sink.notices(),
         vec![Notice {
             level: NoticeLevel::Info,
-            text: "Skipped 2 unavailable videos from Mix".to_string()
+            text: "Skipped 2 unavailable videos from Mix.".to_string()
         }]
+    );
+}
+
+#[tokio::test]
+async fn a_language_change_applies_to_the_next_notice() {
+    let h = Harness::new();
+    let mut settings = h.settings.get();
+    settings.language = Language::German;
+    h.settings.update(settings).unwrap();
+    let list = "https://yt.test/list";
+    h.engine.script(
+        list,
+        Ok(Resolved::Playlist {
+            title: Some("Mix".to_string()),
+            entries: vec![meta("https://yt.test/p1", "p1")],
+            unavailable: 1,
+        }),
+    );
+
+    h.queue.add_urls(list);
+    h.until("the playlist notice", |h| !h.sink.notices().is_empty())
+        .await;
+
+    assert_eq!(
+        h.sink.notices()[0].text,
+        "1 nicht verfügbares Video aus Mix übersprungen."
     );
 }
 
@@ -510,11 +540,11 @@ async fn playlist_without_new_entries_fails_the_placeholder() {
     let DownloadStatus::MetadataFailed { error } = h.item(id).status else {
         unreachable!()
     };
-    assert_eq!(error.kind, ErrorKind::Other);
+    assert_eq!(error.kind, ErrorKind::EmptyPlaylist);
     assert_eq!(error.message, "This playlist has no downloadable videos.");
     assert_eq!(
         h.sink.notices()[0].text,
-        "Skipped 1 unavailable video from the playlist"
+        "Skipped 1 unavailable video from the playlist."
     );
 }
 
@@ -764,6 +794,8 @@ async fn missing_output_dir_fails_without_calling_the_engine() {
     let DownloadStatus::Failed { error } = h.item(id).status else {
         unreachable!()
     };
+    assert_eq!(error.kind, ErrorKind::OutputFolderMissing);
+    assert_eq!(error.detail, h.out().display().to_string());
     assert!(
         error.message.contains("does not exist"),
         "{}",

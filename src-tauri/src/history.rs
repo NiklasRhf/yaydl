@@ -212,7 +212,6 @@ pub fn compute_statistics(
     let mut buckets: Vec<StatsBucket> = starts
         .iter()
         .map(|start| StatsBucket {
-            label: bucket_label(granularity, *start),
             start_date: start.to_string(),
             count: 0,
             bytes: 0,
@@ -333,14 +332,6 @@ fn bucket_starts(granularity: StatsGranularity, today: Date) -> Vec<Date> {
                 .expect("the statistics window starts within jiff's supported date range")
         })
         .collect()
-}
-
-fn bucket_label(granularity: StatsGranularity, start: Date) -> String {
-    match granularity {
-        StatsGranularity::Day => start.strftime("%b %-d").to_string(),
-        StatsGranularity::Week => format!("W{}", start.iso_week_date().week()),
-        StatsGranularity::Month => start.strftime("%b %Y").to_string(),
-    }
 }
 
 /// Index of the largest non-zero value, the smaller index on ties.
@@ -673,26 +664,15 @@ mod tests {
         assert_eq!(stats.buckets.len(), 30);
         let first = &stats.buckets[0];
         assert_eq!(
-            (
-                first.label.as_str(),
-                first.start_date.as_str(),
-                first.count,
-                first.bytes
-            ),
-            ("Aug 25", "2026-08-25", 1, 1000)
+            (first.start_date.as_str(), first.count, first.bytes),
+            ("2026-08-25", 1, 1000)
         );
         let yesterday = &stats.buckets[28];
-        assert_eq!(
-            (yesterday.label.as_str(), yesterday.start_date.as_str()),
-            ("Sep 22", "2026-09-22")
-        );
+        assert_eq!(yesterday.start_date, "2026-09-22");
         assert_eq!((yesterday.count, yesterday.bytes), (1, 0));
         let today = &stats.buckets[29];
-        assert_eq!(
-            (today.label.as_str(), today.start_date.as_str(), today.count),
-            ("Sep 23", "2026-09-23", 1)
-        );
-        assert_eq!(stats.buckets[7].label, "Sep 1");
+        assert_eq!((today.start_date.as_str(), today.count), ("2026-09-23", 1));
+        assert_eq!(stats.buckets[7].start_date, "2026-09-01");
         assert_eq!(stats.buckets.iter().map(|b| b.count).sum::<u32>(), 3);
         assert_eq!(stats.totals.downloads, 4);
         assert_eq!(stats.totals.bytes, 3000);
@@ -706,33 +686,22 @@ mod tests {
         );
         assert_eq!(stats.buckets.len(), 12);
         let first = &stats.buckets[0];
-        assert_eq!(
-            (first.label.as_str(), first.start_date.as_str(), first.count),
-            ("W28", "2026-07-06", 0)
-        );
+        assert_eq!((first.start_date.as_str(), first.count), ("2026-07-06", 0));
         let previous = &stats.buckets[10];
         assert_eq!(
-            (
-                previous.label.as_str(),
-                previous.start_date.as_str(),
-                previous.count
-            ),
-            ("W38", "2026-09-14", 1)
+            (previous.start_date.as_str(), previous.count),
+            ("2026-09-14", 1)
         );
         let current = &stats.buckets[11];
         assert_eq!(
-            (
-                current.label.as_str(),
-                current.start_date.as_str(),
-                current.count
-            ),
-            ("W39", "2026-09-21", 1)
+            (current.start_date.as_str(), current.count),
+            ("2026-09-21", 1)
         );
         assert_eq!(stats.totals.downloads, 3);
     }
 
     #[test]
-    fn week_label_uses_iso_week_across_new_year() {
+    fn week_bucket_starts_on_the_iso_monday_across_new_year() {
         let entries = [entry(1, ms("2027-01-01T12:00"))];
         let stats = compute_statistics(
             &entries,
@@ -741,12 +710,8 @@ mod tests {
         );
         let current = stats.buckets.last().unwrap();
         assert_eq!(
-            (
-                current.label.as_str(),
-                current.start_date.as_str(),
-                current.count
-            ),
-            ("W53", "2026-12-28", 1)
+            (current.start_date.as_str(), current.count),
+            ("2026-12-28", 1)
         );
     }
 
@@ -762,11 +727,8 @@ mod tests {
             StatsGranularity::Month,
         );
         assert_eq!(stats.buckets.len(), 12);
-        let labels: Vec<_> = stats.buckets.iter().map(|b| b.label.as_str()).collect();
-        assert_eq!(labels[0], "Oct 2025");
-        assert_eq!(labels[3], "Jan 2026");
-        assert_eq!(labels[11], "Sep 2026");
         assert_eq!(stats.buckets[0].start_date, "2025-10-01");
+        assert_eq!(stats.buckets[3].start_date, "2026-01-01");
         assert_eq!(stats.buckets[11].start_date, "2026-09-01");
         let counts: Vec<_> = stats.buckets.iter().map(|b| b.count).collect();
         assert_eq!(counts, vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1]);
@@ -801,9 +763,12 @@ mod tests {
         assert_eq!(dates.last().unwrap().to_string(), "2026-10-26");
         let tail: Vec<_> = stats.buckets[27..]
             .iter()
-            .map(|b| (b.label.as_str(), b.count))
+            .map(|b| (b.start_date.as_str(), b.count))
             .collect();
-        assert_eq!(tail, vec![("Oct 24", 1), ("Oct 25", 4), ("Oct 26", 1)]);
+        assert_eq!(
+            tail,
+            vec![("2026-10-24", 1), ("2026-10-25", 4), ("2026-10-26", 1)]
+        );
         assert_eq!(stats.activity[6][2], 2);
         assert_eq!(stats.activity[6][23], 1);
     }

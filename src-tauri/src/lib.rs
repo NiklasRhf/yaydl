@@ -7,6 +7,7 @@ use yaydl_shared::NoticeLevel;
 pub mod app_update;
 pub mod commands;
 pub mod history;
+pub mod i18n;
 pub mod logging;
 pub mod notices;
 pub mod persist;
@@ -38,6 +39,7 @@ fn setup(app: &mut App) -> SetupResult {
         &config_dir.join(SETTINGS_FILE),
         settings::default_output_dir,
     )?;
+    i18n::log_startup_locale(&loaded.settings);
     for n in loaded.notices {
         notices.notify(&handle, n);
     }
@@ -83,11 +85,7 @@ fn setup(app: &mut App) -> SetupResult {
                 &handle,
                 notice(
                     NoticeLevel::Warning,
-                    format!(
-                        "The download history was invalid ({}) and was moved to {}. The history starts empty.",
-                        e.message,
-                        moved.display()
-                    ),
+                    (i18n::texts_for(&settings.get()).history_file_invalid)(&e.message, &moved),
                 ),
             );
             History::empty(history_path)
@@ -114,7 +112,7 @@ fn setup(app: &mut App) -> SetupResult {
         let channel = settings.get().yt_dlp_channel;
         let result = ytdlp.maybe_update_on_startup(channel).await;
         info!(%channel, ?result, "yt-dlp startup update check done");
-        if let Some(n) = startup_update_notice(&result) {
+        if let Some(n) = startup_update_notice(&result, i18n::texts_for(&settings.get())) {
             notices.notify(&handle, n);
         }
     });

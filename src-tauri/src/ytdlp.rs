@@ -1464,6 +1464,10 @@ fn friendly_message(kind: ErrorKind) -> &'static str {
         ErrorKind::Interrupted => {
             "The download was interrupted because yaydl closed. Retry to start it again."
         }
+        ErrorKind::OutputFolderMissing => {
+            "The output folder does not exist. Choose another folder in Settings."
+        }
+        ErrorKind::EmptyPlaylist => "This playlist has no downloadable videos.",
         ErrorKind::Other => {
             "yt-dlp failed with an unexpected error. Retry later, and check the details if it \
              keeps happening."

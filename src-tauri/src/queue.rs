@@ -17,6 +17,7 @@ use yaydl_shared::{
 
 use crate::{
     history::History,
+    i18n,
     notices::notice,
     persist::{quarantine, read_json, write_json_atomic, PersistError},
     settings::SettingsStore,
@@ -189,11 +190,7 @@ impl<E: Engine, S: Sink> Queue<E, S> {
                 let moved = quarantine(&deps.path)?;
                 deps.sink.notice(notice(
                     NoticeLevel::Warning,
-                    format!(
-                        "The saved download queue was invalid ({}) and was moved to {}. The queue starts empty.",
-                        e.message,
-                        moved.display()
-                    ),
+                    (i18n::texts_for(&deps.settings.get()).queue_file_invalid)(&e.message, &moved),
                 ));
                 None
             }
@@ -358,7 +355,7 @@ impl<E: Engine, S: Sink> Queue<E, S> {
                         error!(id, error = %e, "start_all could not start an item");
                         self.inner.sink.notice(notice(
                             NoticeLevel::Error,
-                            format!("Starting download {id} failed: {e}"),
+                            (self.inner.texts().start_failed)(id, &e),
                         ));
                     }
                 }
@@ -672,12 +669,12 @@ impl<E: Engine, S: Sink> Queue<E, S> {
         } else {
             warn!(id, output_dir = %request.output_dir.display(), "the output folder does not exist, not starting the download");
             Err(YtDlpFailure::Failed(FriendlyError {
-                kind: ErrorKind::Other,
+                kind: ErrorKind::OutputFolderMissing,
                 message: format!(
                     "The output folder {} does not exist. Choose another folder in Settings.",
                     request.output_dir.display()
                 ),
-                detail: String::new(),
+                detail: request.output_dir.display().to_string(),
             }))
         };
         self.inner.finish_download(id, &request, result);
@@ -713,6 +710,10 @@ impl<E: Engine, S: Sink> Inner<E, S> {
         self.state.lock().expect("queue lock poisoned")
     }
 
+    fn texts(&self) -> &'static i18n::Texts {
+        i18n::texts_for(&self.settings.get())
+    }
+
     /// Failing to save does not undo the change, which already happened in
     /// memory and is what the user sees. The notice tells them it will not
     /// survive a restart.
@@ -726,9 +727,7 @@ impl<E: Engine, S: Sink> Inner<E, S> {
             error!(error = %e, "saving the queue failed");
             self.sink.notice(notice(
                 NoticeLevel::Error,
-                format!(
-                    "Saving the download queue failed, changes will be lost when yaydl closes: {e}"
-                ),
+                (self.texts().queue_save_failed)(&e),
             ));
         }
     }
@@ -914,19 +913,15 @@ impl<E: Engine, S: Sink> Inner<E, S> {
         );
         let skipped = unavailable + count_u32(invalid_urls);
         if skipped > 0 {
-            let videos = if skipped == 1 { "video" } else { "videos" };
             self.sink.notice(notice(
                 NoticeLevel::Info,
-                format!(
-                    "Skipped {skipped} unavailable {videos} from {}",
-                    title.as_deref().unwrap_or("the playlist")
-                ),
+                (self.texts().playlist_skipped)(skipped, title.as_deref()),
             ));
         }
         if expanded.is_empty() {
             state.items[index].status = DownloadStatus::MetadataFailed {
                 error: FriendlyError {
-                    kind: ErrorKind::Other,
+                    kind: ErrorKind::EmptyPlaylist,
                     message: EMPTY_PLAYLIST_MESSAGE.to_string(),
                     detail: format!(
                         "{total} entries listed, {already_queued} already in the queue, {skipped} unavailable"
@@ -1011,7 +1006,7 @@ impl<E: Engine, S: Sink> Inner<E, S> {
                                 error!(id, error = %e, "recording the download in the history failed");
                                 self.sink.notice(notice(
                                     NoticeLevel::Error,
-                                    format!("The download finished, but saving it to the history failed: {e}"),
+                                    (self.texts().history_write_failed)(&e),
                                 ));
                             }
                         }
@@ -1023,7 +1018,7 @@ impl<E: Engine, S: Sink> Inner<E, S> {
                         );
                         self.sink.notice(notice(
                             NoticeLevel::Error,
-                            format!("Download {id} finished, but it could not be added to the history because its details are missing."),
+                            (self.texts().history_details_missing)(id),
                         ));
                     }
                 }

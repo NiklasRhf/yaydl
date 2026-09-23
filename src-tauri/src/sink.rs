@@ -5,7 +5,7 @@ use tauri_plugin_notification::NotificationExt;
 use tracing::{debug, error, info, warn};
 use yaydl_shared::{events, DownloadItem, Notice};
 
-use crate::{notices::Notices, queue::Sink, settings::SettingsStore};
+use crate::{i18n, notices::Notices, queue::Sink, settings::SettingsStore};
 
 const MAIN_WINDOW: &str = "main";
 
@@ -58,7 +58,8 @@ impl<R: Runtime> Sink for TauriSink<R> {
     }
 
     fn batch_finished(&self, finished: u32, failed: u32) {
-        if !self.settings.get().notify_on_finish {
+        let settings = self.settings.get();
+        if !settings.notify_on_finish {
             debug!(finished, failed, "batch finished, notifications are off");
             return;
         }
@@ -69,7 +70,7 @@ impl<R: Runtime> Sink for TauriSink<R> {
             );
             return;
         }
-        let body = batch_summary(finished, failed);
+        let body = (i18n::texts_for(&settings).batch_summary)(finished, failed);
         info!(%body, "sending the batch notification");
         if let Err(e) = self
             .app
@@ -81,28 +82,5 @@ impl<R: Runtime> Sink for TauriSink<R> {
         {
             error!(error = %e, finished, failed, "showing the batch notification failed");
         }
-    }
-}
-
-pub fn batch_summary(finished: u32, failed: u32) -> String {
-    let downloads = |n: u32| if n == 1 { "download" } else { "downloads" };
-    match (finished, failed) {
-        (f, 0) => format!("{f} {} finished", downloads(f)),
-        (0, x) => format!("{x} {} failed", downloads(x)),
-        (f, x) => format!("{f} finished, {x} failed"),
-    }
-}
-
-// AGENT CODE: claude-opus-5
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn batch_summaries() {
-        assert_eq!(batch_summary(1, 0), "1 download finished");
-        assert_eq!(batch_summary(3, 0), "3 downloads finished");
-        assert_eq!(batch_summary(0, 2), "2 downloads failed");
-        assert_eq!(batch_summary(2, 1), "2 finished, 1 failed");
     }
 }

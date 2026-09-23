@@ -4,6 +4,8 @@ use tauri::{AppHandle, Emitter, Runtime};
 use tracing::{error, info, warn};
 use yaydl_shared::{events, Notice, NoticeLevel, YtDlpError, YtDlpUpdateEvent};
 
+use crate::i18n::Texts;
+
 #[derive(Default)]
 struct State {
     ui_ready: bool,
@@ -72,21 +74,19 @@ pub fn notice(level: NoticeLevel, text: impl Into<String>) -> Notice {
 /// `AlreadyCurrent` and a skipped check are not worth a toast.
 pub fn startup_update_notice(
     result: &Result<Option<YtDlpUpdateEvent>, YtDlpError>,
+    texts: &Texts,
 ) -> Option<Notice> {
     match result {
         Ok(Some(YtDlpUpdateEvent::Updated { from, to, channel })) => Some(notice(
             NoticeLevel::Success,
-            format!("yt-dlp was updated from {from} to {to} ({channel})."),
+            (texts.ytdlp_updated)(from, to, *channel),
         )),
         Ok(Some(YtDlpUpdateEvent::Failed { message })) => Some(notice(
             NoticeLevel::Error,
-            format!("Updating yt-dlp failed: {message}"),
+            (texts.ytdlp_update_failed)(message),
         )),
         Ok(Some(YtDlpUpdateEvent::AlreadyCurrent { .. })) | Ok(None) => None,
-        Err(e) => Some(notice(
-            NoticeLevel::Error,
-            format!("Updating yt-dlp failed: {e}"),
-        )),
+        Err(e) => Some(notice(NoticeLevel::Error, (texts.ytdlp_update_failed)(e))),
     }
 }
 
@@ -95,6 +95,8 @@ pub fn startup_update_notice(
 mod tests {
     use super::*;
     use yaydl_shared::YtDlpChannel;
+
+    use crate::i18n::{DE, EN};
 
     #[test]
     fn notices_are_buffered_until_the_ui_takes_them() {
@@ -117,20 +119,33 @@ mod tests {
             channel: YtDlpChannel::Nightly,
         }));
         assert_eq!(
-            startup_update_notice(&updated).map(|n| n.level),
-            Some(NoticeLevel::Success)
+            startup_update_notice(&updated, &EN),
+            Some(notice(
+                NoticeLevel::Success,
+                "yt-dlp was updated from 2026.01.01 to 2026.09.01 (nightly)."
+            ))
+        );
+        assert_eq!(
+            startup_update_notice(&updated, &DE),
+            Some(notice(
+                NoticeLevel::Success,
+                "yt-dlp wurde von 2026.01.01 auf 2026.09.01 aktualisiert (nightly)."
+            ))
         );
 
         let current = Ok(Some(YtDlpUpdateEvent::AlreadyCurrent {
             version: "2026.09.01".into(),
             channel: YtDlpChannel::Nightly,
         }));
-        assert_eq!(startup_update_notice(&current), None);
-        assert_eq!(startup_update_notice(&Ok(None)), None);
+        assert_eq!(startup_update_notice(&current, &EN), None);
+        assert_eq!(startup_update_notice(&Ok(None), &EN), None);
 
         let failed = Err(YtDlpError::Io("disk gone".into()));
-        let n = startup_update_notice(&failed).expect("a failure raises a notice");
+        let n = startup_update_notice(&failed, &DE).expect("a failure raises a notice");
         assert_eq!(n.level, NoticeLevel::Error);
+        assert!(n
+            .text
+            .starts_with("Das Update von yt-dlp ist fehlgeschlagen"));
         assert!(n.text.contains("disk gone"));
     }
 }
