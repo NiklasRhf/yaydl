@@ -1,0 +1,46 @@
+# Maintainer: NiklasRhf <65732627+niklasrhf@users.noreply.github.com>
+#
+# Repackages the release .deb so yaydl runs on the system WebKitGTK. The
+# AppImage bundles its own, older WebKitGTK, which scrolls noticeably worse on
+# Arch. Update with scripts/update-pkgbuild.sh after a release has been built.
+
+pkgname=yaydl-bin
+pkgver=0.4.0
+pkgrel=1
+pkgdesc="Yet Another YouTube Downloader, a yt-dlp frontend"
+arch=('x86_64')
+url="https://github.com/NiklasRhf/yaydl"
+license=('MIT')
+depends=('webkit2gtk-4.1' 'gtk3' 'libsoup3' 'glib2' 'cairo' 'gdk-pixbuf2' 'dbus' 'gcc-libs' 'glibc' 'xdg-utils')
+provides=('yaydl')
+conflicts=('yaydl')
+# yt-dlp is a PyInstaller bundle, stripping it corrupts the embedded archive.
+options=('!strip' '!debug')
+source=("${url}/releases/download/yaydl-v${pkgver}/yaydl_${pkgver}_amd64.deb"
+        "LICENSE-${pkgver}::https://raw.githubusercontent.com/NiklasRhf/yaydl/yaydl-v${pkgver}/LICENSE")
+noextract=("yaydl_${pkgver}_amd64.deb")
+sha256sums=('09719cb1dc519fbf7a54a9417b015970a3c8b17ad1892a9e863ea04491544664'
+            'f148aa9a803ae4ab5625037cc44c90148cb033fbe48fb39de0f9e134cde303b3')
+
+prepare() {
+  mkdir -p deb
+  bsdtar -xf "yaydl_${pkgver}_amd64.deb" -C deb
+  bsdtar -xf deb/data.tar.gz -C deb
+}
+
+package() {
+  # yaydl looks for yt-dlp and ffmpeg next to its own executable. They live in
+  # /usr/lib/yaydl so they do not clash with the yt-dlp and ffmpeg packages.
+  install -Dm755 deb/usr/bin/yaydl "${pkgdir}/usr/lib/yaydl/yaydl"
+  for bin in yt-dlp ffmpeg ffprobe; do
+    install -Dm755 "deb/usr/bin/${bin}" "${pkgdir}/usr/lib/yaydl/${bin}"
+  done
+  install -dm755 "${pkgdir}/usr/bin"
+  ln -s /usr/lib/yaydl/yaydl "${pkgdir}/usr/bin/yaydl"
+
+  install -Dm644 deb/usr/share/applications/yaydl.desktop "${pkgdir}/usr/share/applications/yaydl.desktop"
+  install -Dm644 deb/usr/share/icons/hicolor/32x32/apps/yaydl.png "${pkgdir}/usr/share/icons/hicolor/32x32/apps/yaydl.png"
+  install -Dm644 deb/usr/share/icons/hicolor/128x128/apps/yaydl.png "${pkgdir}/usr/share/icons/hicolor/128x128/apps/yaydl.png"
+  install -Dm644 "deb/usr/share/icons/hicolor/256x256@2/apps/yaydl.png" "${pkgdir}/usr/share/icons/hicolor/256x256/apps/yaydl.png"
+  install -Dm644 "LICENSE-${pkgver}" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

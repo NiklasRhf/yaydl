@@ -77,3 +77,24 @@ manifest, as a GitHub release. The workflow refuses a tag whose version does not
 scripts/release.sh 0.4.0
 git push origin main yaydl-v0.4.0
 ```
+
+Once the release workflow has uploaded the bundles, point the Arch package at them and commit:
+
+```
+scripts/update-pkgbuild.sh 0.4.0
+```
+
+## Arch Linux
+
+On Arch, install the native package instead of the AppImage. The AppImage bundles its own, older
+WebKitGTK, which scrolls noticeably worse than the system one. `packaging/arch/PKGBUILD` builds
+`yaydl-bin` from the release `.deb`:
+
+```
+cd packaging/arch
+makepkg -si
+```
+
+yaydl's own yt-dlp and ffmpeg go to `/usr/lib/yaydl`, so they do not clash with the `yt-dlp` and
+`ffmpeg` packages. The in-app updater only updates AppImages, so update the package with pacman or
+by rebuilding it from a newer PKGBUILD.
