@@ -3,6 +3,7 @@ use leptos::task::spawn_local;
 use leptos_icons::Icon;
 use yaydl_shared::{events, AppUpdateProgress, DownloadItem, Notice};
 
+use crate::i18n::{texts_now, use_texts, Text};
 use crate::ipc::{call0, listen, log_to_backend};
 use crate::state::{use_app, AppState, Page};
 use crate::theme;
@@ -52,7 +53,7 @@ async fn startup(state: AppState) {
         listen(
             events::QUEUE_ITEM_UPDATED,
             toasts,
-            move |item: DownloadItem| queue.update(item, toasts),
+            move |item: DownloadItem| queue.update(item, state),
         )
         .await,
         listen(events::NOTICE, toasts, move |notice: Notice| {
@@ -72,17 +73,14 @@ async fn startup(state: AppState) {
     ];
     let failures: Vec<String> = registrations.into_iter().filter_map(Result::err).collect();
     if !failures.is_empty() {
-        let message = format!(
-            "The UI cannot receive updates from the backend, so the queue may be stale:\n{}",
-            failures.join("\n")
-        );
+        let message = (texts_now(state).listen_failed)(&failures.join("\n"));
         log_to_backend("error", message.clone());
         toasts.error(message);
     }
 
     match call0::<Vec<DownloadItem>>("get_queue").await {
         Ok(items) => queue.replace(items),
-        Err(e) => toasts.error(format!("Loading the download queue failed: {e}")),
+        Err(e) => toasts.error((texts_now(state).queue_load_failed)(&e)),
     }
     match call0::<Vec<Notice>>("take_startup_notices").await {
         Ok(notices) => {
@@ -90,7 +88,7 @@ async fn startup(state: AppState) {
                 toasts.push(notice.level, notice.text);
             }
         }
-        Err(e) => toasts.error(format!("Loading startup messages failed: {e}")),
+        Err(e) => toasts.error((texts_now(state).startup_notices_failed)(&e)),
     }
     state.load_settings().await;
     update_banner::check(state).await;
@@ -98,22 +96,24 @@ async fn startup(state: AppState) {
 
 #[component]
 fn Sidebar() -> impl IntoView {
+    let t = use_texts();
     view! {
         <nav
-            aria-label="Main"
+            aria-label=move || t().nav_label
             class="flex w-52 shrink-0 flex-col gap-1 border-r border-zinc-200 bg-zinc-100/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60"
         >
             <p class="px-3 pb-4 pt-2 text-xl font-semibold tracking-tight">"yaydl"</p>
-            <NavItem page=Page::Downloads label="Downloads" icon=icondata::LuDownload />
-            <NavItem page=Page::Statistics label="Statistics" icon=icondata::LuChartColumn />
-            <NavItem page=Page::Settings label="Settings" icon=icondata::LuSettings />
+            <NavItem page=Page::Downloads label=|t| t.nav_downloads icon=icondata::LuDownload />
+            <NavItem page=Page::Statistics label=|t| t.nav_statistics icon=icondata::LuChartColumn />
+            <NavItem page=Page::Settings label=|t| t.nav_settings icon=icondata::LuSettings />
         </nav>
     }
 }
 
 #[component]
-fn NavItem(page: Page, label: &'static str, icon: icondata::Icon) -> impl IntoView {
+fn NavItem(page: Page, label: Text, icon: icondata::Icon) -> impl IntoView {
     let app = use_app();
+    let t = use_texts();
     let active = move || app.page.get() == page;
     view! {
         <button
@@ -133,7 +133,7 @@ fn NavItem(page: Page, label: &'static str, icon: icondata::Icon) -> impl IntoVi
             <span class="text-lg" aria-hidden="true">
                 <Icon icon=icon />
             </span>
-            {label}
+            {move || label(t())}
         </button>
     }
 }

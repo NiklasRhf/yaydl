@@ -6,22 +6,21 @@ use wasm_bindgen::JsCast;
 use yaydl_shared::{AddUrlsArgs, AddUrlsResult};
 
 use crate::format;
+use crate::i18n::{texts_now, use_texts, Text, Texts};
 use crate::ipc::{call, call0, fire0, log_to_backend};
 use crate::state::{use_app, AppState};
-use crate::toast::Toasts;
 use crate::views::item::ItemRow;
 
 const MAX_INVALID_SHOWN: usize = 3;
 
-pub fn report_added(toasts: Toasts, result: &AddUrlsResult) {
+pub fn report_added(state: AppState, result: &AddUrlsResult) {
+    let toasts = state.toasts;
+    let t = texts_now(state);
     if !result.added.is_empty() {
-        toasts.success(format!("Added {}", result.added.len()));
+        toasts.success((t.added)(result.added.len() as u64));
     }
     if !result.already_queued.is_empty() {
-        toasts.info(format!(
-            "{} already in the queue",
-            result.already_queued.len()
-        ));
+        toasts.info((t.already_queued)(result.already_queued.len() as u64));
     }
     if !result.invalid.is_empty() {
         let shown: Vec<&str> = result
@@ -31,15 +30,10 @@ pub fn report_added(toasts: Toasts, result: &AddUrlsResult) {
             .map(String::as_str)
             .collect();
         let rest = result.invalid.len().saturating_sub(MAX_INVALID_SHOWN);
-        let more = if rest > 0 {
-            format!(" and {rest} more")
-        } else {
-            String::new()
-        };
-        toasts.warning(format!("Not a link: {}{more}", shown.join(", ")));
+        toasts.warning((t.not_a_link)(&shown.join(", "), rest as u64));
     }
     if result.added.is_empty() && result.already_queued.is_empty() && result.invalid.is_empty() {
-        toasts.info("No links found");
+        toasts.info(t.no_links_found);
     }
 }
 
@@ -48,7 +42,7 @@ pub fn report_added(toasts: Toasts, result: &AddUrlsResult) {
 async fn add_text(state: AppState, text: String) -> bool {
     match call::<_, AddUrlsResult>("add_urls", &AddUrlsArgs { text }).await {
         Ok(result) => {
-            report_added(state.toasts, &result);
+            report_added(state, &result);
             !result.added.is_empty() || !result.already_queued.is_empty()
         }
         Err(e) => {
@@ -70,10 +64,10 @@ fn focus_in_field() -> bool {
 }
 
 /// Prefers `text/uri-list`, whose `#` lines are comments, over `text/plain`.
-fn dropped_text(data: &web_sys::DataTransfer) -> Result<String, String> {
+fn dropped_text(t: &Texts, data: &web_sys::DataTransfer) -> Result<String, String> {
     let uri_list = data
         .get_data("text/uri-list")
-        .map_err(|e| format!("reading the dropped links failed: {e:?}"))?;
+        .map_err(|e| (t.drop_links_read_failed)(&format!("{e:?}")))?;
     let links: Vec<&str> = uri_list
         .lines()
         .map(str::trim)
@@ -83,7 +77,7 @@ fn dropped_text(data: &web_sys::DataTransfer) -> Result<String, String> {
         return Ok(links.join("\n"));
     }
     data.get_data("text/plain")
-        .map_err(|e| format!("reading the dropped text failed: {e:?}"))
+        .map_err(|e| (t.drop_text_read_failed)(&format!("{e:?}")))
 }
 
 #[component]
@@ -91,6 +85,7 @@ pub fn DownloadsPage() -> impl IntoView {
     let state = use_app();
     let toasts = state.toasts;
     let queue = state.queue;
+    let t = use_texts();
     let input = RwSignal::new(String::new());
     let adding = RwSignal::new(false);
     let drag_depth = RwSignal::new(0i32);
@@ -105,13 +100,13 @@ pub fn DownloadsPage() -> impl IntoView {
                 "warn",
                 "a paste event carried no clipboard data".to_string(),
             );
-            toasts.warning("The pasted content could not be read");
+            toasts.warning(texts_now(state).paste_unreadable);
             return;
         };
         let text = match data.get_data("text/plain") {
             Ok(text) => text,
             Err(e) => {
-                toasts.error(format!("Reading the pasted text failed: {e:?}"));
+                toasts.error((texts_now(state).paste_read_failed)(&format!("{e:?}")));
                 return;
             }
         };
@@ -141,7 +136,7 @@ pub fn DownloadsPage() -> impl IntoView {
     let from_clipboard = move |_| {
         spawn_local(async move {
             match call0::<AddUrlsResult>("add_from_clipboard").await {
-                Ok(result) => report_added(toasts, &result),
+                Ok(result) => report_added(state, &result),
                 Err(e) => toasts.error(e),
             }
         });
@@ -152,12 +147,11 @@ pub fn DownloadsPage() -> impl IntoView {
         drag_depth.set(0);
         let Some(data) = ev.data_transfer() else {
             log_to_backend("warn", "a drop event carried no data".to_string());
-            toasts.warning("The dropped content could not be read");
+            toasts.warning(texts_now(state).drop_unreadable);
             return;
         };
-        match dropped_text(&data) {
-            Ok(text) if text.trim().is_empty() => toasts
-                .info("Nothing to add. Drop a link from your browser's address bar or a page."),
+        match dropped_text(texts_now(state), &data) {
+            Ok(text) if text.trim().is_empty() => toasts.info(texts_now(state).drop_nothing),
             Ok(text) => spawn_local(async move {
                 add_text(state, text).await;
             }),
@@ -167,19 +161,24 @@ pub fn DownloadsPage() -> impl IntoView {
 
     let summary_text = move || {
         let s = summary.get();
+        let t = t();
         let parts: Vec<String> = [
-            (s.resolving, "fetching info"),
-            (s.awaiting, "awaiting confirmation"),
-            (s.ready, "ready"),
-            (s.downloading, "downloading"),
-            (s.queued, "queued"),
-            (s.finished, "finished"),
-            (s.failed, "failed"),
-            (s.cancelled, "cancelled"),
+            s.resolving,
+            s.awaiting,
+            s.ready,
+            s.downloading,
+            s.queued,
+            s.finished,
+            s.failed,
+            s.cancelled,
         ]
         .into_iter()
+        .zip(t.summary)
         .filter(|(n, _)| *n > 0)
-        .map(|(n, label)| format!("{} {label}", format::count(u64::from(n))))
+        .map(|(n, (one, many))| {
+            let label = if n == 1 { one } else { many };
+            format!("{} {label}", format::count(u64::from(n), t.locale))
+        })
         .collect();
         parts.join(" \u{b7} ")
     };
@@ -200,16 +199,16 @@ pub fn DownloadsPage() -> impl IntoView {
             on:dragleave=move |_| drag_depth.update(|d| *d = (*d - 1).max(0))
             on:drop=on_drop
         >
-            <h1 class="text-2xl font-semibold tracking-tight">"Downloads"</h1>
+            <h1 class="text-2xl font-semibold tracking-tight">{move || t().downloads_title}</h1>
             <div class="card flex flex-wrap items-center gap-2 p-3">
                 <label for="add-links" class="sr-only">
-                    "Links to add"
+                    {move || t().add_links_label}
                 </label>
                 <input
                     id="add-links"
                     class="input min-w-[16rem] flex-1"
                     type="text"
-                    placeholder="Paste links from YouTube or 1000+ other sites"
+                    placeholder=move || t().add_links_placeholder
                     autocomplete="off"
                     spellcheck="false"
                     bind:value=input
@@ -226,11 +225,11 @@ pub fn DownloadsPage() -> impl IntoView {
                     on:click=move |_| submit()
                 >
                     <Icon icon=icondata::LuPlus />
-                    "Add"
+                    {move || t().add}
                 </button>
                 <button class="btn btn-secondary" on:click=from_clipboard>
                     <Icon icon=icondata::LuClipboardPaste />
-                    "Paste from clipboard"
+                    {move || t().paste_from_clipboard}
                 </button>
             </div>
 
@@ -247,7 +246,7 @@ pub fn DownloadsPage() -> impl IntoView {
                     }
                 >
                     <Icon icon=icondata::LuDownload />
-                    "Download all"
+                    {move || t().download_all}
                 </button>
                 <button
                     class="btn btn-secondary"
@@ -260,26 +259,17 @@ pub fn DownloadsPage() -> impl IntoView {
                     }
                 >
                     <Icon icon=icondata::LuListX />
-                    "Clear finished"
+                    {move || t().clear_finished}
                 </button>
                 <ConfirmButton
-                    label="Clear all"
-                    confirm_label="Click again to clear all"
+                    label=|t| t.clear_all
+                    confirm_label=|t| t.clear_all_confirm
                     icon=icondata::LuTrash2
                     on_confirm=Callback::new(move |()| {
                         spawn_local(async move {
                             match call0::<u32>("clear_all").await {
                                 Ok(0) => {}
-                                Ok(kept) => {
-                                    toasts
-                                        .info(
-                                            format!(
-                                                "Kept {} that {} still running",
-                                                format::plural(u64::from(kept), "download", "downloads"),
-                                                if kept == 1 { "is" } else { "are" },
-                                            ),
-                                        )
-                                }
+                                Ok(kept) => toasts.info((texts_now(state).kept_running)(u64::from(kept))),
                                 Err(e) => toasts.error(e),
                             }
                         })
@@ -287,7 +277,7 @@ pub fn DownloadsPage() -> impl IntoView {
                 />
                 <button class="btn btn-secondary" on:click=move |_| fire0(toasts, "open_output_dir")>
                     <Icon icon=icondata::LuFolderOpen />
-                    "Open folder"
+                    {move || t().open_folder}
                 </button>
                 <p class="ml-auto text-sm text-zinc-500 dark:text-zinc-400" aria-live="polite">
                     {summary_text}
@@ -296,13 +286,13 @@ pub fn DownloadsPage() -> impl IntoView {
 
             <Show
                 when=move || queue.order.with(|o| !o.is_empty())
-                fallback=|| {
+                fallback=move || {
                     view! {
                         <div class="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-zinc-300 p-10 text-center text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
                             <span class="text-4xl" aria-hidden="true">
                                 <Icon icon=icondata::LuLink />
                             </span>
-                            <p>"Paste a link with Ctrl+V, drop it here, or type it above."</p>
+                            <p>{move || t().queue_empty}</p>
                         </div>
                     }
                 }
@@ -328,7 +318,7 @@ pub fn DownloadsPage() -> impl IntoView {
                 <div class="pointer-events-none absolute inset-2 z-40 flex items-center justify-center rounded-xl border-2 border-dashed border-blue-500 bg-blue-50/90 text-lg font-medium text-blue-800 dark:bg-blue-950/90 dark:text-blue-100">
                     <span class="flex items-center gap-2">
                         <Icon icon=icondata::LuLink />
-                        "Drop links to add them"
+                        {move || t().drop_overlay}
                     </span>
                 </div>
             </Show>
@@ -339,11 +329,12 @@ pub fn DownloadsPage() -> impl IntoView {
 /// A destructive button that needs a second click within a few seconds.
 #[component]
 pub fn ConfirmButton(
-    label: &'static str,
-    confirm_label: &'static str,
+    label: Text,
+    confirm_label: Text,
     icon: icondata::Icon,
     on_confirm: Callback<()>,
 ) -> impl IntoView {
+    let t = use_texts();
     let armed = RwSignal::new(false);
     let generation = StoredValue::new(0u64);
     let click = move |_| {
@@ -378,7 +369,7 @@ pub fn ConfirmButton(
             on:blur=move |_| armed.set(false)
         >
             <Icon icon=icon />
-            {move || if armed.get() { confirm_label } else { label }}
+            {move || if armed.get() { confirm_label(t()) } else { label(t()) }}
         </button>
     }
 }

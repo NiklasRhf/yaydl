@@ -4,6 +4,7 @@ use leptos::prelude::*;
 use leptos_icons::Icon;
 use yaydl_shared::NoticeLevel;
 
+use crate::i18n::use_texts;
 use crate::ipc::log_to_backend;
 
 const MAX_VISIBLE: usize = 5;
@@ -93,28 +94,32 @@ pub fn ToastStack() -> impl IntoView {
 #[component]
 fn ToastCard(toast: Toast) -> impl IntoView {
     let toasts = use_toasts();
+    let t = use_texts();
     let id = toast.id;
-    let (icon, accent, label) = match toast.level {
+    let level = toast.level;
+    let (icon, accent) = match level {
         NoticeLevel::Success => (
             icondata::LuCircleCheck,
             "border-l-emerald-500 text-emerald-600 dark:text-emerald-400",
-            "Success",
         ),
         NoticeLevel::Info => (
             icondata::LuInfo,
             "border-l-blue-500 text-blue-600 dark:text-blue-400",
-            "Info",
         ),
         NoticeLevel::Warning => (
             icondata::LuTriangleAlert,
             "border-l-amber-500 text-amber-600 dark:text-amber-400",
-            "Warning",
         ),
         NoticeLevel::Error => (
             icondata::LuTriangleAlert,
             "border-l-red-500 text-red-600 dark:text-red-400",
-            "Error",
         ),
+    };
+    let label = move || match level {
+        NoticeLevel::Success => t().toast_success,
+        NoticeLevel::Info => t().toast_info,
+        NoticeLevel::Warning => t().toast_warning,
+        NoticeLevel::Error => t().toast_error,
     };
     let role = if toast.level == NoticeLevel::Error {
         "alert"
@@ -136,8 +141,8 @@ fn ToastCard(toast: Toast) -> impl IntoView {
             </p>
             <button
                 class="icon-btn -m-1 shrink-0"
-                title="Dismiss"
-                aria-label="Dismiss"
+                title=move || t().dismiss
+                aria-label=move || t().dismiss
                 on:click=move |_| toasts.dismiss(id)
             >
                 <Icon icon=icondata::LuX />

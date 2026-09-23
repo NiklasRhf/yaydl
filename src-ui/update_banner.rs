@@ -4,6 +4,7 @@ use leptos_icons::Icon;
 use yaydl_shared::{AppUpdateInfo, AppUpdateProgress};
 
 use crate::format;
+use crate::i18n::{texts, texts_now};
 use crate::ipc::{call0, log_to_backend};
 use crate::state::{use_app, AppState};
 
@@ -31,7 +32,7 @@ pub async fn check(state: AppState) {
         Ok(None) => {}
         Err(e) => state
             .toasts
-            .warning(format!("Checking for a yaydl update failed: {e}")),
+            .warning((texts_now(state).update_check_failed)(&e)),
     }
 }
 
@@ -75,6 +76,8 @@ pub fn UpdateBanner() -> impl IntoView {
 }
 
 fn banner(state: AppState, update: UpdateState) -> AnyView {
+    let t = texts(state.locale.get());
+    let locale = t.locale;
     let hide = move |_| state.update.set(UpdateState::Hidden);
     match update {
         UpdateState::Hidden => ().into_any(),
@@ -84,17 +87,17 @@ fn banner(state: AppState, update: UpdateState) -> AnyView {
             view! {
                 <Banner tone=Tone::Info>
                     <div class="min-w-0 flex-1">
-                        <p class="font-medium">{format!("yaydl {version} is available")}</p>
+                        <p class="font-medium">{(t.update_available)(&version)}</p>
                         {notes
                             .map(|n| {
                                 view! { <p class="mt-0.5 line-clamp-2 text-sm opacity-80">{n}</p> }
                             })}
                     </div>
                     <button class="btn btn-primary" on:click=move |_| install(state, info.clone())>
-                        "Update and restart"
+                        {t.update_install}
                     </button>
                     <button class="btn btn-ghost" on:click=hide>
-                        "Later"
+                        {t.update_later}
                     </button>
                 </Banner>
             }
@@ -102,26 +105,26 @@ fn banner(state: AppState, update: UpdateState) -> AnyView {
         }
         UpdateState::Installing { info, progress } => {
             let detail = match &progress {
-                None => "Starting the download\u{2026}".to_string(),
+                None => t.update_starting.to_string(),
                 Some(p) => match (p.total_bytes, percent_of(p)) {
-                    (Some(total), Some(percent)) => format!(
-                        "{} of {} ({percent:.0}%)",
-                        format::bytes(p.downloaded_bytes),
-                        format::bytes(total),
+                    (Some(total), Some(percent)) => (t.update_progress)(
+                        &format::bytes(p.downloaded_bytes, locale),
+                        &format::bytes(total, locale),
+                        &format::percent(percent, locale),
                     ),
-                    _ => format!("{} downloaded", format::bytes(p.downloaded_bytes)),
+                    _ => (t.update_downloaded)(&format::bytes(p.downloaded_bytes, locale)),
                 },
             };
             let percent = progress.as_ref().and_then(percent_of);
             view! {
                 <Banner tone=Tone::Info>
                     <div class="min-w-0 flex-1">
-                        <p class="font-medium">{format!("Installing yaydl {}", info.version)}</p>
+                        <p class="font-medium">{(t.update_installing)(&info.version)}</p>
                         <p class="text-sm opacity-80">{detail}</p>
                         <ProgressBar percent=Signal::stored(percent) />
                     </div>
                     <button class="btn btn-ghost" on:click=hide>
-                        "Hide"
+                        {t.update_hide}
                     </button>
                 </Banner>
             }
@@ -130,13 +133,10 @@ fn banner(state: AppState, update: UpdateState) -> AnyView {
         UpdateState::Restarting(info) => view! {
             <Banner tone=Tone::Info>
                 <p class="min-w-0 flex-1">
-                    {format!(
-                        "yaydl {} is installed and restarts now. If it does not, restart it yourself.",
-                        info.version,
-                    )}
+                    {(t.update_restarting)(&info.version)}
                 </p>
                 <button class="btn btn-ghost" on:click=hide>
-                    "Dismiss"
+                    {t.dismiss}
                 </button>
             </Banner>
         }
@@ -144,16 +144,16 @@ fn banner(state: AppState, update: UpdateState) -> AnyView {
         UpdateState::Failed { info, message } => view! {
             <Banner tone=Tone::Error>
                 <div class="min-w-0 flex-1">
-                    <p class="font-medium">{format!("Updating to yaydl {} failed", info.version)}</p>
+                    <p class="font-medium">{(t.update_failed)(&info.version)}</p>
                     <p class="max-h-24 overflow-y-auto whitespace-pre-wrap break-words text-sm">
                         {message}
                     </p>
                 </div>
                 <button class="btn btn-primary" on:click=move |_| install(state, info.clone())>
-                    "Retry"
+                    {t.update_retry}
                 </button>
                 <button class="btn btn-ghost" on:click=hide>
-                    "Dismiss"
+                    {t.dismiss}
                 </button>
             </Banner>
         }

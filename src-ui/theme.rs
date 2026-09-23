@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 use yaydl_shared::Theme;
 
+use crate::i18n::{texts_now, Texts};
 use crate::ipc::log_to_backend;
 use crate::state::AppState;
 
@@ -20,20 +21,11 @@ pub fn install(state: AppState) {
             {
                 // The listener lives as long as the webview.
                 Ok(()) => on_change.forget(),
-                Err(e) => report(
-                    format!("Listening for OS theme changes failed: {e:?}"),
-                    state,
-                ),
+                Err(e) => report(state, |t| (t.theme_listen_failed)(&format!("{e:?}"))),
             }
         }
-        Ok(None) => report(
-            "The webview cannot report the OS theme, so System uses the light theme".into(),
-            state,
-        ),
-        Err(e) => report(
-            format!("Querying the OS theme failed, so System uses the light theme: {e:?}"),
-            state,
-        ),
+        Ok(None) => report(state, |t| t.theme_unsupported.to_string()),
+        Err(e) => report(state, |t| (t.theme_query_failed)(&format!("{e:?}"))),
     }
 
     Effect::new(move |_| {
@@ -46,19 +38,19 @@ pub fn install(state: AppState) {
             Theme::Dark => true,
         };
         let Some(root) = document().document_element() else {
-            report(
-                "Applying the theme failed: the document has no root element".into(),
-                state,
-            );
+            report(state, |t| {
+                (t.theme_apply_failed)("the document has no root element")
+            });
             return;
         };
         if let Err(e) = root.class_list().toggle_with_force("dark", dark) {
-            report(format!("Applying the theme failed: {e:?}"), state);
+            report(state, |t| (t.theme_apply_failed)(&format!("{e:?}")));
         }
     });
 }
 
-fn report(message: String, state: AppState) {
+fn report(state: AppState, message: impl FnOnce(&Texts) -> String) {
+    let message = message(texts_now(state));
     log_to_backend("warn", message.clone());
     state.toasts.warning(message);
 }

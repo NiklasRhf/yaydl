@@ -1,7 +1,8 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use yaydl_shared::Settings;
+use yaydl_shared::{Language, Locale, Settings};
 
+use crate::i18n::{self, texts_now};
 use crate::ipc::call0;
 use crate::queue::Queue;
 use crate::toast::Toasts;
@@ -25,19 +26,33 @@ pub struct AppState {
     pub history_rev: RwSignal<u64>,
     pub update: RwSignal<UpdateState>,
     pub page: RwSignal<Page>,
+    /// Follows `settings.language`, and `navigator.language` for `System` and
+    /// until the settings loaded.
+    pub locale: Signal<Locale>,
 }
 
 impl AppState {
     pub fn new(toasts: Toasts) -> Self {
-        Self {
+        let settings = RwSignal::new(None::<Settings>);
+        let system_tag = window().navigator().language();
+        let system_tag_missing = system_tag.is_none();
+        let locale = Memo::new(move |_| {
+            settings
+                .with(|s| s.as_ref().map_or(Language::System, |s| s.language))
+                .resolve(system_tag.as_deref())
+        });
+        let state = Self {
             toasts,
             queue: Queue::new(),
-            settings: RwSignal::new(None),
+            settings,
             settings_error: RwSignal::new(None),
             history_rev: RwSignal::new(0),
             update: RwSignal::new(UpdateState::Hidden),
             page: RwSignal::new(Page::Downloads),
-        }
+            locale: locale.into(),
+        };
+        i18n::install(state, system_tag_missing);
+        state
     }
 
     pub async fn load_settings(self) {
@@ -48,7 +63,7 @@ impl AppState {
             }
             Err(e) => {
                 self.toasts
-                    .error(format!("Loading the settings failed: {e}"));
+                    .error((texts_now(self).settings_load_failed)(&e));
                 self.settings_error.set(Some(e));
             }
         }

@@ -1,5 +1,6 @@
 mod app;
 mod format;
+mod i18n;
 mod ipc;
 mod log_viewer;
 mod queue;

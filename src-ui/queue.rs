@@ -4,8 +4,9 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use yaydl_shared::{DownloadId, DownloadItem, DownloadStatus};
 
+use crate::i18n::texts_now;
 use crate::ipc::{call0, log_to_backend};
-use crate::toast::Toasts;
+use crate::state::AppState;
 
 /// Mirror of the backend queue. The order and each item have their own signal,
 /// so a progress update re-renders only the row it belongs to.
@@ -67,7 +68,7 @@ impl Queue {
         self.order.set(order);
     }
 
-    pub fn update(self, item: DownloadItem, toasts: Toasts) {
+    pub fn update(self, item: DownloadItem, state: AppState) {
         match self.item(item.id) {
             Some(signal) => signal.set(item),
             None => {
@@ -79,16 +80,16 @@ impl Queue {
                         item.status.name()
                     ),
                 );
-                self.refetch(toasts);
+                self.refetch(state);
             }
         }
     }
 
-    pub fn refetch(self, toasts: Toasts) {
+    pub fn refetch(self, state: AppState) {
         spawn_local(async move {
             match call0::<Vec<DownloadItem>>("get_queue").await {
                 Ok(list) => self.replace(list),
-                Err(e) => toasts.error(format!("Loading the download queue failed: {e}")),
+                Err(e) => state.toasts.error((texts_now(state).queue_load_failed)(&e)),
             }
         });
     }

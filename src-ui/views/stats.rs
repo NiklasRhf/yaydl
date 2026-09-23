@@ -5,7 +5,8 @@ use yaydl_shared::{
     DayCount, HistoryEntry, NameCount, Statistics, StatsArgs, StatsBucket, StatsGranularity,
 };
 
-use crate::format::{self, WEEKDAYS};
+use crate::format;
+use crate::i18n::{format_label, format_name_label, texts_now, use_texts, Text, Texts};
 use crate::ipc::{call, call0, log_to_backend};
 use crate::state::use_app;
 use crate::views::downloads::ConfirmButton;
@@ -23,6 +24,7 @@ enum Phase {
 #[component]
 pub fn StatisticsPage() -> impl IntoView {
     let state = use_app();
+    let t = use_texts();
     let granularity = RwSignal::new(StatsGranularity::Day);
     let stats = RwSignal::new(None::<Statistics>);
     let loading = RwSignal::new(false);
@@ -67,7 +69,7 @@ pub fn StatisticsPage() -> impl IntoView {
 
     view! {
         <div class="mx-auto flex max-w-5xl flex-col gap-6 p-6">
-            <h1 class="text-2xl font-semibold tracking-tight">"Statistics"</h1>
+            <h1 class="text-2xl font-semibold tracking-tight">{move || t().stats_title}</h1>
             {move || {
                 error
                     .get()
@@ -75,10 +77,10 @@ pub fn StatisticsPage() -> impl IntoView {
                         view! {
                             <div class="card flex flex-wrap items-center gap-3 border-red-300 p-4 dark:border-red-800">
                                 <p class="min-w-0 flex-1 text-red-700 dark:text-red-400">
-                                    {format!("Loading the statistics failed: {e}")}
+                                    {move || (t().stats_load_failed)(&e)}
                                 </p>
                                 <button class="btn btn-secondary" on:click=move |_| load(granularity.get_untracked())>
-                                    "Try again"
+                                    {move || t().try_again}
                                 </button>
                             </div>
                         }
@@ -86,7 +88,7 @@ pub fn StatisticsPage() -> impl IntoView {
             }}
             {move || match phase.get() {
                 Phase::Loading => {
-                    view! { <p class="text-zinc-500 dark:text-zinc-400">"Loading statistics\u{2026}"</p> }.into_any()
+                    view! { <p class="text-zinc-500 dark:text-zinc-400">{move || t().stats_loading}</p> }.into_any()
                 }
                 Phase::Failed => ().into_any(),
                 Phase::Empty => {
@@ -95,8 +97,8 @@ pub fn StatisticsPage() -> impl IntoView {
                             <span class="text-4xl" aria-hidden="true">
                                 <Icon icon=icondata::LuChartColumn />
                             </span>
-                            <p class="font-medium text-zinc-700 dark:text-zinc-200">"No downloads yet"</p>
-                            <p>"Finished downloads show up here with charts and your download history."</p>
+                            <p class="font-medium text-zinc-700 dark:text-zinc-200">{move || t().stats_empty_title}</p>
+                            <p>{move || t().stats_empty_body}</p>
                         </div>
                     }
                         .into_any()
@@ -116,29 +118,31 @@ fn StatsBody(
     granularity: RwSignal<StatsGranularity>,
     loading: RwSignal<bool>,
 ) -> impl IntoView {
-    let pick = move |f: fn(&Statistics) -> String| move || stats.with(|s| s.as_ref().map(f));
-    let streak = move || {
-        stats.with(|s| {
-            s.as_ref().map(|s| {
-                (
-                    format::plural(u64::from(s.current_streak_days), "day", "days"),
-                    format!(
-                        "Longest {}",
-                        format::plural(u64::from(s.longest_streak_days), "day", "days")
-                    ),
-                )
-            })
-        })
+    let t = use_texts();
+    let pick = move |f: fn(&Statistics, &Texts) -> String| {
+        move || {
+            let t = t();
+            stats.with(|s| s.as_ref().map(|s| f(s, t)))
+        }
     };
     view! {
         <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatTile label="Total downloads" value=Signal::derive(pick(|s| format::count(u64::from(s.totals.downloads)))) />
-            <StatTile label="Total size" value=Signal::derive(pick(|s| format::bytes(s.totals.bytes))) />
-            <StatTile label="Total duration" value=Signal::derive(pick(|s| format::long_duration(s.totals.duration_secs))) />
             <StatTile
-                label="Current streak"
-                value=Signal::derive(move || streak().map(|(current, _)| current))
-                note=Signal::derive(move || streak().map(|(_, longest)| longest))
+                label=|t| t.tile_total_downloads
+                value=Signal::derive(pick(|s, t| format::count(u64::from(s.totals.downloads), t.locale)))
+            />
+            <StatTile
+                label=|t| t.tile_total_size
+                value=Signal::derive(pick(|s, t| format::bytes(s.totals.bytes, t.locale)))
+            />
+            <StatTile
+                label=|t| t.tile_total_duration
+                value=Signal::derive(pick(|s, t| format::long_duration(s.totals.duration_secs, t.locale)))
+            />
+            <StatTile
+                label=|t| t.tile_streak
+                value=Signal::derive(pick(|s, t| (t.days)(u64::from(s.current_streak_days))))
+                note=Signal::derive(pick(|s, t| (t.streak_longest)(&(t.days)(u64::from(s.longest_streak_days)))))
             />
         </div>
 
@@ -146,15 +150,15 @@ fn StatsBody(
 
         <section class="flex flex-col gap-3">
             <div class="flex flex-wrap items-center gap-3">
-                <h2 class="text-lg font-semibold">"Downloads over time"</h2>
-                <div class="segmented ml-auto" role="radiogroup" aria-label="Time range">
+                <h2 class="text-lg font-semibold">{move || t().over_time}</h2>
+                <div class="segmented ml-auto" role="radiogroup" aria-label=move || t().time_range>
                     {StatsGranularity::ALL
                         .into_iter()
                         .map(|g| {
-                            let label = match g {
-                                StatsGranularity::Day => "Day",
-                                StatsGranularity::Week => "Week",
-                                StatsGranularity::Month => "Month",
+                            let label = move || match g {
+                                StatsGranularity::Day => t().granularity_day,
+                                StatsGranularity::Week => t().granularity_week,
+                                StatsGranularity::Month => t().granularity_month,
                             };
                             view! {
                                 <button
@@ -177,45 +181,62 @@ fn StatsBody(
             >
                 <p class="mb-2 text-sm text-zinc-500 dark:text-zinc-400">
                     {move || match granularity.get() {
-                        StatsGranularity::Day => "Downloads per day, last 30 days",
-                        StatsGranularity::Week => "Downloads per week, last 12 weeks",
-                        StatsGranularity::Month => "Downloads per month, last 12 months",
+                        StatsGranularity::Day => t().caption_day,
+                        StatsGranularity::Week => t().caption_week,
+                        StatsGranularity::Month => t().caption_month,
                     }}
                 </p>
                 {move || {
+                    let t = t();
                     stats
-                        .with(|s| s.as_ref().map(|s| s.buckets.clone()))
-                        .map(|buckets| view! { <BarChart buckets=buckets /> })
+                        .with(|s| s.as_ref().map(|s| (s.buckets.clone(), s.granularity)))
+                        .map(|(buckets, granularity)| {
+                            view! { <BarChart buckets=buckets granularity=granularity t=t /> }
+                        })
                 }}
             </div>
         </section>
 
         <section class="flex flex-col gap-3">
-            <h2 class="text-lg font-semibold">"When you download"</h2>
+            <h2 class="text-lg font-semibold">{move || t().when_you_download}</h2>
             <div class="card p-4">
                 {move || {
+                    let t = t();
                     stats
                         .with(|s| s.as_ref().map(|s| s.activity.clone()))
-                        .map(|activity| view! { <Heatmap activity=activity /> })
+                        .map(|activity| view! { <Heatmap activity=activity t=t /> })
                 }}
             </div>
         </section>
 
         <div class="grid gap-3 md:grid-cols-2">
             <section class="card p-4">
-                <h2 class="mb-3 font-semibold">"Top uploaders"</h2>
+                <h2 class="mb-3 font-semibold">{move || t().top_uploaders}</h2>
                 {move || {
+                    let t = t();
                     stats
                         .with(|s| s.as_ref().map(|s| s.top_uploaders.clone()))
-                        .map(|rows| view! { <BarList rows=rows empty="No uploader information yet" /> })
+                        .map(|rows| view! { <BarList rows=rows empty=t.no_uploaders t=t /> })
                 }}
             </section>
             <section class="card p-4">
-                <h2 class="mb-3 font-semibold">"Formats"</h2>
+                <h2 class="mb-3 font-semibold">{move || t().formats}</h2>
                 {move || {
+                    let t = t();
                     stats
-                        .with(|s| s.as_ref().map(|s| s.formats.clone()))
-                        .map(|rows| view! { <BarList rows=rows empty="No formats yet" /> })
+                        .with(|s| {
+                            s.as_ref()
+                                .map(|s| {
+                                    s.formats
+                                        .iter()
+                                        .map(|row| NameCount {
+                                            name: format_name_label(t, &row.name),
+                                            count: row.count,
+                                        })
+                                        .collect::<Vec<_>>()
+                                })
+                        })
+                        .map(|rows| view! { <BarList rows=rows empty=t.no_formats t=t /> })
                 }}
             </section>
         </div>
@@ -224,73 +245,69 @@ fn StatsBody(
 
 #[component]
 fn StatTile(
-    label: &'static str,
+    label: Text,
     value: Signal<Option<String>>,
     #[prop(optional)] note: Option<Signal<Option<String>>>,
 ) -> impl IntoView {
+    let t = use_texts();
     view! {
         <div class="card p-4">
-            <p class="text-sm text-zinc-500 dark:text-zinc-400">{label}</p>
+            <p class="text-sm text-zinc-500 dark:text-zinc-400">{move || label(t())}</p>
             <p class="mt-1 text-2xl font-semibold">{move || value.get()}</p>
             {note.map(|note| view! { <p class="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">{move || note.get()}</p> })}
         </div>
     }
 }
 
-fn busiest_day_sentence(day: &DayCount) -> String {
-    let date = match format::iso_date(&day.date) {
+fn busiest_day_sentence(t: &Texts, day: &DayCount) -> String {
+    let date = match format::iso_date(&day.date, t.locale) {
         Ok(date) => date,
         Err(e) => {
             log_to_backend("warn", format!("busiest_day has an unreadable date: {e}"));
             day.date.clone()
         }
     };
-    format!(
-        "Busiest day: {date} with {}",
-        format::plural(u64::from(day.count), "download", "downloads")
-    )
+    (t.busiest_day)(&date, u64::from(day.count))
+}
+
+fn insight_sentences(t: &Texts, s: &Statistics) -> Vec<String> {
+    let mut out = Vec::new();
+    let weekday = s
+        .busiest_weekday
+        .and_then(|d| match t.weekdays_habitual.get(usize::from(d)) {
+            Some(name) => Some(*name),
+            None => {
+                log_to_backend("warn", format!("busiest_weekday is {d}, expected 0 to 6"));
+                None
+            }
+        });
+    let hour = s.busiest_hour.map(|h| format::around_hour(h, t.locale));
+    match (weekday, hour) {
+        (Some(day), Some(hour)) => out.push((t.most_active_day_hour)(day, &hour)),
+        (Some(day), None) => out.push((t.most_active_day)(day)),
+        (None, Some(hour)) => out.push((t.most_active_hour)(&hour)),
+        (None, None) => {}
+    }
+    if let Some(day) = &s.busiest_day {
+        out.push(busiest_day_sentence(t, day));
+    }
+    if let Some(first) = s.totals.first_download_ms {
+        out.push((t.since_uploaders)(
+            &format::date_ms(first, t.locale),
+            u64::from(s.totals.distinct_uploaders),
+        ));
+    }
+    out
 }
 
 #[component]
 fn Insights(stats: RwSignal<Option<Statistics>>) -> impl IntoView {
+    let t = use_texts();
     let sentences = move || {
+        let t = t();
         stats.with(|s| {
-            let Some(s) = s else {
-                return Vec::new();
-            };
-            let mut out = Vec::new();
-            let weekday = s
-                .busiest_weekday
-                .and_then(|d| match WEEKDAYS.get(usize::from(d)) {
-                    Some(name) => Some(*name),
-                    None => {
-                        log_to_backend("warn", format!("busiest_weekday is {d}, expected 0 to 6"));
-                        None
-                    }
-                });
-            match (weekday, s.busiest_hour) {
-                (Some(day), Some(hour)) => {
-                    out.push(format!("You're most active on {day}s around {hour:02}:00"))
-                }
-                (Some(day), None) => out.push(format!("You're most active on {day}s")),
-                (None, Some(hour)) => out.push(format!("You're most active around {hour:02}:00")),
-                (None, None) => {}
-            }
-            if let Some(day) = &s.busiest_day {
-                out.push(busiest_day_sentence(day));
-            }
-            if let Some(first) = s.totals.first_download_ms {
-                out.push(format!(
-                    "Since {} you downloaded from {}",
-                    format::date_ms(first),
-                    format::plural(
-                        u64::from(s.totals.distinct_uploaders),
-                        "uploader",
-                        "uploaders"
-                    )
-                ));
-            }
-            out
+            s.as_ref()
+                .map_or_else(Vec::new, |s| insight_sentences(t, s))
         })
     };
     view! {
@@ -346,6 +363,19 @@ fn column_path(x: f64, y: f64, w: f64, base: f64) -> String {
     )
 }
 
+fn bucket_label(t: &Texts, bucket: &StatsBucket, granularity: StatsGranularity) -> String {
+    match format::bucket_label(&bucket.start_date, granularity, t.locale) {
+        Ok(label) => label,
+        Err(e) => {
+            log_to_backend(
+                "warn",
+                format!("a statistics bucket has an unreadable start date: {e}"),
+            );
+            bucket.start_date.clone()
+        }
+    }
+}
+
 const CHART_W: f64 = 720.0;
 const CHART_H: f64 = 220.0;
 const MARGIN_LEFT: f64 = 40.0;
@@ -354,7 +384,16 @@ const MARGIN_TOP: f64 = 10.0;
 const MARGIN_BOTTOM: f64 = 26.0;
 
 #[component]
-fn BarChart(buckets: Vec<StatsBucket>) -> impl IntoView {
+fn BarChart(
+    buckets: Vec<StatsBucket>,
+    granularity: StatsGranularity,
+    t: &'static Texts,
+) -> impl IntoView {
+    let locale = t.locale;
+    let labels: Vec<String> = buckets
+        .iter()
+        .map(|b| bucket_label(t, b, granularity))
+        .collect();
     let n = buckets.len().max(1) as f64;
     let plot_w = CHART_W - MARGIN_LEFT - MARGIN_RIGHT;
     let plot_h = CHART_H - MARGIN_TOP - MARGIN_BOTTOM;
@@ -377,7 +416,7 @@ fn BarChart(buckets: Vec<StatsBucket>) -> impl IntoView {
                 <g>
                     <line x1=MARGIN_LEFT x2=CHART_W - MARGIN_RIGHT y1=y y2=y stroke="var(--viz-grid)" stroke-width="1" />
                     <text x=MARGIN_LEFT - 8.0 y=y + 4.0 text-anchor="end" font-size="11" fill="var(--viz-label)" style="font-variant-numeric: tabular-nums">
-                        {format::count(u64::from(value))}
+                        {format::count(u64::from(value), locale)}
                     </text>
                 </g>
             }
@@ -386,24 +425,20 @@ fn BarChart(buckets: Vec<StatsBucket>) -> impl IntoView {
 
     let bars = buckets
         .iter()
+        .zip(&labels)
         .enumerate()
-        .map(|(i, b)| {
+        .map(|(i, (b, label))| {
             let band_x = MARGIN_LEFT + i as f64 * band;
             let x = band_x + (band - bar_w) / 2.0;
-            let tip = format!(
-                "{}: {}, {}",
-                b.label,
-                format::plural(u64::from(b.count), "download", "downloads"),
-                format::bytes(b.bytes)
-            );
+            let tip = (t.bar_tip)(label, u64::from(b.count), &format::bytes(b.bytes, locale));
             let column = (b.count > 0).then(|| {
                 let path = column_path(x, y_of(b.count), bar_w, base);
                 view! { <path class="viz-bar" d=path /> }
             });
-            let label = (last - i).is_multiple_of(label_every).then(|| {
+            let axis_label = (last - i).is_multiple_of(label_every).then(|| {
                 view! {
                     <text x=band_x + band / 2.0 y=CHART_H - 8.0 text-anchor="middle" font-size="11" fill="var(--viz-label)">
-                        {b.label.clone()}
+                        {label.clone()}
                     </text>
                 }
             });
@@ -413,7 +448,7 @@ fn BarChart(buckets: Vec<StatsBucket>) -> impl IntoView {
                     <title>{tip}</title>
                     <rect class="viz-hit-area" x=band_x y=MARGIN_TOP width=band height=plot_h fill="transparent" rx="3" />
                     {column}
-                    {label}
+                    {axis_label}
                 </g>
             }
         })
@@ -421,12 +456,13 @@ fn BarChart(buckets: Vec<StatsBucket>) -> impl IntoView {
 
     let rows = buckets
         .iter()
-        .map(|b| {
+        .zip(labels)
+        .map(|(b, label)| {
             view! {
                 <tr class="border-t border-zinc-200 dark:border-zinc-800">
-                    <td class="py-1 pr-4">{b.label.clone()}</td>
-                    <td class="py-1 pr-4 text-right tabular-nums">{format::count(u64::from(b.count))}</td>
-                    <td class="py-1 text-right tabular-nums">{format::bytes(b.bytes)}</td>
+                    <td class="py-1 pr-4">{label}</td>
+                    <td class="py-1 pr-4 text-right tabular-nums">{format::count(u64::from(b.count), locale)}</td>
+                    <td class="py-1 text-right tabular-nums">{format::bytes(b.bytes, locale)}</td>
                 </tr>
             }
         })
@@ -437,20 +473,20 @@ fn BarChart(buckets: Vec<StatsBucket>) -> impl IntoView {
             viewBox=format!("0 0 {CHART_W} {CHART_H}")
             class="h-auto w-full"
             role="group"
-            aria-label="Downloads per period"
+            aria-label=t.chart_label
         >
             {ticks}
             <line x1=MARGIN_LEFT x2=CHART_W - MARGIN_RIGHT y1=base y2=base stroke="var(--viz-axis)" stroke-width="1" />
             {bars}
         </svg>
         <details class="mt-2 text-sm">
-            <summary class="link inline-block cursor-pointer">"Show as table"</summary>
+            <summary class="link inline-block cursor-pointer">{t.show_table}</summary>
             <table class="mt-2 w-full max-w-md">
                 <thead>
                     <tr class="text-left text-zinc-500 dark:text-zinc-400">
-                        <th class="py-1 pr-4 font-medium">"Period"</th>
-                        <th class="py-1 pr-4 text-right font-medium">"Downloads"</th>
-                        <th class="py-1 text-right font-medium">"Size"</th>
+                        <th class="py-1 pr-4 font-medium">{t.period}</th>
+                        <th class="py-1 pr-4 text-right font-medium">{t.col_downloads}</th>
+                        <th class="py-1 text-right font-medium">{t.size}</th>
                     </tr>
                 </thead>
                 <tbody>{rows}</tbody>
@@ -474,17 +510,17 @@ fn heat_fill(value: u32, max: u32) -> String {
 }
 
 #[component]
-fn Heatmap(activity: Vec<[u32; 24]>) -> impl IntoView {
-    if activity.len() != WEEKDAYS.len() {
+fn Heatmap(activity: Vec<[u32; 24]>, t: &'static Texts) -> impl IntoView {
+    if activity.len() != t.weekdays.len() {
         let message = format!(
             "activity has {} rows, expected {}",
             activity.len(),
-            WEEKDAYS.len()
+            t.weekdays.len()
         );
         log_to_backend("error", message.clone());
         return view! {
             <p class="text-sm text-red-700 dark:text-red-400">
-                {format!("The activity chart cannot be drawn: {message}")}
+                {(t.heatmap_broken)(&message)}
             </p>
         }
         .into_any();
@@ -518,12 +554,7 @@ fn Heatmap(activity: Vec<[u32; 24]>) -> impl IntoView {
                 .iter()
                 .enumerate()
                 .map(|(h, value)| {
-                    let tip = format!(
-                        "{} {h:02}:00 to {:02}:00: {}",
-                        WEEKDAYS[d],
-                        (h + 1) % 24,
-                        format::plural(u64::from(*value), "download", "downloads")
-                    );
+                    let tip = (t.heat_tip)(t.weekdays[d], h, u64::from(*value));
                     view! {
                         <rect
                             class="viz-cell"
@@ -542,7 +573,7 @@ fn Heatmap(activity: Vec<[u32; 24]>) -> impl IntoView {
             view! {
                 <g>
                     <text x=HEAT_LEFT - 8.0 y=y + (HEAT_CELL - HEAT_GAP) / 2.0 + 4.0 text-anchor="end" font-size="11" fill="var(--viz-label)">
-                        {&WEEKDAYS[d][..3]}
+                        {t.weekdays_short[d]}
                     </text>
                     {cells}
                 </g>
@@ -556,10 +587,10 @@ fn Heatmap(activity: Vec<[u32; 24]>) -> impl IntoView {
         .map(|(d, row)| {
             view! {
                 <tr class="border-t border-zinc-200 dark:border-zinc-800">
-                    <th class="py-1 pr-2 text-left font-medium">{&WEEKDAYS[d][..3]}</th>
+                    <th class="py-1 pr-2 text-left font-medium">{t.weekdays_short[d]}</th>
                     {row
                         .iter()
-                        .map(|v| view! { <td class="px-1 py-1 text-right tabular-nums">{*v}</td> })
+                        .map(|v| view! { <td class="px-1 py-1 text-right tabular-nums">{format::count(u64::from(*v), t.locale)}</td> })
                         .collect_view()}
                 </tr>
             }
@@ -572,7 +603,7 @@ fn Heatmap(activity: Vec<[u32; 24]>) -> impl IntoView {
                 viewBox=format!("0 0 {width} {height}")
                 class="h-auto w-full min-w-[480px] max-w-3xl"
                 role="img"
-                aria-label="Downloads by weekday and hour"
+                aria-label=t.heatmap_label
             >
                 {hour_labels}
                 {rows}
@@ -585,10 +616,10 @@ fn Heatmap(activity: Vec<[u32; 24]>) -> impl IntoView {
             {(1..=HEAT_STEPS)
                 .map(|s| view! { <span class="h-3 w-3 rounded-sm" style=format!("background: var(--seq-{s})")></span> })
                 .collect_view()}
-            <span>{format!("{max} downloads in one hour slot")}</span>
+            <span>{(t.heat_legend)(u64::from(max))}</span>
         </div>
         <details class="mt-2 text-sm">
-            <summary class="link inline-block cursor-pointer">"Show as table"</summary>
+            <summary class="link inline-block cursor-pointer">{t.show_table}</summary>
             <div class="mt-2 overflow-x-auto">
                 <table class="text-xs">
                     <thead>
@@ -606,7 +637,7 @@ fn Heatmap(activity: Vec<[u32; 24]>) -> impl IntoView {
 }
 
 #[component]
-fn BarList(rows: Vec<NameCount>, empty: &'static str) -> impl IntoView {
+fn BarList(rows: Vec<NameCount>, empty: &'static str, t: &'static Texts) -> impl IntoView {
     if rows.is_empty() {
         return view! { <p class="text-sm text-zinc-500 dark:text-zinc-400">{empty}</p> }
             .into_any();
@@ -623,7 +654,7 @@ fn BarList(rows: Vec<NameCount>, empty: &'static str) -> impl IntoView {
                             <div class="flex items-baseline justify-between gap-3 text-sm">
                                 <span class="truncate" title=row.name.clone()>{row.name.clone()}</span>
                                 <span class="shrink-0 tabular-nums text-zinc-500 dark:text-zinc-400">
-                                    {format::count(u64::from(row.count))}
+                                    {format::count(u64::from(row.count), t.locale)}
                                 </span>
                             </div>
                             <div class="mt-1 h-2 w-full">
@@ -638,10 +669,36 @@ fn BarList(rows: Vec<NameCount>, empty: &'static str) -> impl IntoView {
     .into_any()
 }
 
+/// The file name on disk, which differs from the video title after a rename.
+fn history_name(entry: &HistoryEntry) -> String {
+    let path = entry.file_path.to_string_lossy();
+    match format::file_stem(&path) {
+        Some(stem) => stem.to_string(),
+        None => {
+            log_to_backend(
+                "warn",
+                format!(
+                    "history entry {} has a file path without a file name: {path:?}",
+                    entry.download_id
+                ),
+            );
+            entry.title.clone()
+        }
+    }
+}
+
+/// The video title, unless the file name already says it. yt-dlp's default
+/// name is `<title> [<id>]`, which counts as saying it.
+fn history_subtitle(entry: &HistoryEntry, name: &str) -> Option<String> {
+    let default_name = format!("{} [{}]", entry.title, entry.video_id);
+    (name != entry.title && name != default_name).then(|| entry.title.clone())
+}
+
 #[component]
 fn HistorySection() -> impl IntoView {
     let state = use_app();
     let toasts = state.toasts;
+    let t = use_texts();
     let history = RwSignal::new(None::<Vec<HistoryEntry>>);
     let search = RwSignal::new(String::new());
 
@@ -650,7 +707,7 @@ fn HistorySection() -> impl IntoView {
         spawn_local(async move {
             match call0::<Vec<HistoryEntry>>("get_history").await {
                 Ok(entries) => history.set(Some(entries)),
-                Err(e) => toasts.error(format!("Loading the download history failed: {e}")),
+                Err(e) => toasts.error((texts_now(state).history_load_failed)(&e)),
             }
         });
     });
@@ -661,16 +718,18 @@ fn HistorySection() -> impl IntoView {
             let Some(entries) = h else {
                 return (Vec::new(), 0);
             };
-            let matches: Vec<HistoryEntry> = entries
+            let matches: Vec<(HistoryEntry, String)> = entries
                 .iter()
-                .filter(|e| {
+                .map(|e| (e, history_name(e)))
+                .filter(|(e, name)| {
                     needle.is_empty()
+                        || name.to_lowercase().contains(&needle)
                         || e.title.to_lowercase().contains(&needle)
                         || e.uploader
                             .as_ref()
                             .is_some_and(|u| u.to_lowercase().contains(&needle))
                 })
-                .cloned()
+                .map(|(e, name)| (e.clone(), name))
                 .collect();
             let total = matches.len();
             (matches.into_iter().take(HISTORY_ROWS).collect(), total)
@@ -680,7 +739,7 @@ fn HistorySection() -> impl IntoView {
     let clear = Callback::new(move |()| {
         spawn_local(async move {
             if let Err(e) = call0::<()>("clear_history").await {
-                toasts.error(format!("Clearing the history failed: {e}"));
+                toasts.error((texts_now(state).history_clear_failed)(&e));
             }
         });
     });
@@ -688,9 +747,9 @@ fn HistorySection() -> impl IntoView {
     view! {
         <section class="flex flex-col gap-3">
             <div class="flex flex-wrap items-center gap-3">
-                <h2 class="text-lg font-semibold">"History"</h2>
+                <h2 class="text-lg font-semibold">{move || t().history_title}</h2>
                 <label for="history-search" class="sr-only">
-                    "Search history"
+                    {move || t().history_search_label}
                 </label>
                 <div class="relative ml-auto">
                     <span class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden="true">
@@ -700,67 +759,75 @@ fn HistorySection() -> impl IntoView {
                         id="history-search"
                         type="search"
                         class="input w-64 py-1 pl-8 text-sm"
-                        placeholder="Search title or uploader"
+                        placeholder=move || t().history_search_placeholder
                         bind:value=search
                     />
                 </div>
                 <ConfirmButton
-                    label="Clear history"
-                    confirm_label="Click again to clear"
+                    label=|t| t.clear_history
+                    confirm_label=|t| t.clear_history_confirm
                     icon=icondata::LuTrash2
                     on_confirm=clear
                 />
             </div>
             <div class="card overflow-x-auto">
                 {move || {
+                    let t = t();
+                    let locale = t.locale;
                     if history.with(Option::is_none) {
-                        return view! { <p class="p-4 text-sm text-zinc-500 dark:text-zinc-400">"Loading history\u{2026}"</p> }
+                        return view! { <p class="p-4 text-sm text-zinc-500 dark:text-zinc-400">{t.history_loading}</p> }
                             .into_any();
                     }
                     let (rows, total) = filtered.get();
                     if total == 0 {
                         let text = if search.with(|s| s.trim().is_empty()) {
-                            "Nothing downloaded yet"
+                            t.history_empty
                         } else {
-                            "No downloads match the search"
+                            t.history_no_match
                         };
                         return view! { <p class="p-4 text-sm text-zinc-500 dark:text-zinc-400">{text}</p> }.into_any();
                     }
-                    let note = (total > rows.len())
-                        .then(|| {
-                            format!(
-                                "Showing {} of {} matches. Refine the search to see others.",
-                                rows.len(),
-                                format::count(total as u64),
-                            )
-                        });
+                    let note = (total > rows.len()).then(|| (t.history_truncated)(rows.len(), total));
                     view! {
                         <table class="w-full text-sm">
                             <thead>
                                 <tr class="text-left text-zinc-500 dark:text-zinc-400">
-                                    <th class="px-4 py-2 font-medium">"Title"</th>
-                                    <th class="px-4 py-2 font-medium">"Uploader"</th>
-                                    <th class="px-4 py-2 font-medium">"Format"</th>
-                                    <th class="px-4 py-2 font-medium">"Date"</th>
-                                    <th class="px-4 py-2 text-right font-medium">"Size"</th>
+                                    <th class="px-4 py-2 font-medium">{t.col_name}</th>
+                                    <th class="px-4 py-2 font-medium">{t.col_uploader}</th>
+                                    <th class="px-4 py-2 font-medium">{t.col_format}</th>
+                                    <th class="px-4 py-2 font-medium">{t.col_date}</th>
+                                    <th class="px-4 py-2 text-right font-medium">{t.size}</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {rows
                                     .into_iter()
-                                    .map(|e| {
+                                    .map(|(e, name)| {
+                                        let subtitle = history_subtitle(&e, &name);
+                                        let name_tip = name.clone();
                                         view! {
                                             <tr class="border-t border-zinc-200 dark:border-zinc-800">
-                                                <td class="max-w-xs truncate px-4 py-2" title=e.title.clone()>{e.title.clone()}</td>
-                                                <td class="max-w-[12rem] truncate px-4 py-2 text-zinc-600 dark:text-zinc-300">
-                                                    {e.uploader.clone().unwrap_or_else(|| "Unknown".to_string())}
+                                                <td class="max-w-xs px-4 py-2">
+                                                    <p class="truncate" title=name_tip>{name}</p>
+                                                    {subtitle
+                                                        .map(|s| {
+                                                            let tip = s.clone();
+                                                            view! {
+                                                                <p class="truncate text-xs text-zinc-500 dark:text-zinc-400" title=tip>
+                                                                    {s}
+                                                                </p>
+                                                            }
+                                                        })}
                                                 </td>
-                                                <td class="whitespace-nowrap px-4 py-2 text-zinc-600 dark:text-zinc-300">{e.format.to_string()}</td>
+                                                <td class="max-w-[12rem] truncate px-4 py-2 text-zinc-600 dark:text-zinc-300">
+                                                    {e.uploader.clone().unwrap_or_else(|| t.unknown.to_string())}
+                                                </td>
+                                                <td class="whitespace-nowrap px-4 py-2 text-zinc-600 dark:text-zinc-300">{format_label(t, e.format)}</td>
                                                 <td class="whitespace-nowrap px-4 py-2 tabular-nums text-zinc-600 dark:text-zinc-300">
-                                                    {format::date_time_ms(e.finished_at_ms)}
+                                                    {format::date_time_ms(e.finished_at_ms, locale)}
                                                 </td>
                                                 <td class="whitespace-nowrap px-4 py-2 text-right tabular-nums text-zinc-600 dark:text-zinc-300">
-                                                    {e.file_size_bytes.map_or_else(|| "Unknown".to_string(), format::bytes)}
+                                                    {e.file_size_bytes.map_or_else(|| t.unknown.to_string(), |b| format::bytes(b, locale))}
                                                 </td>
                                             </tr>
                                         }
@@ -774,5 +841,79 @@ fn HistorySection() -> impl IntoView {
                 }}
             </div>
         </section>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use yaydl_shared::{AudioCodec, OutputFormat};
+
+    fn entry(title: &str, path: &str) -> HistoryEntry {
+        HistoryEntry {
+            download_id: 1,
+            extractor: "Youtube".to_string(),
+            video_id: "abc123".to_string(),
+            title: title.to_string(),
+            uploader: None,
+            url: "https://youtu.be/abc123".to_string(),
+            format: OutputFormat::Audio {
+                codec: AudioCodec::Mp3,
+            },
+            file_path: path.into(),
+            file_size_bytes: None,
+            duration_secs: None,
+            finished_at_ms: 0,
+        }
+    }
+
+    #[test]
+    fn renamed_history_entries_show_the_file_name() {
+        let renamed = entry("DUNE: Part Three | War Chant Lyrics", "/m/War Chant.mp3");
+        let name = history_name(&renamed);
+        assert_eq!(name, "War Chant");
+        assert_eq!(
+            history_subtitle(&renamed, &name).as_deref(),
+            Some("DUNE: Part Three | War Chant Lyrics")
+        );
+
+        let default = entry("Song", "/m/Song [abc123].mp3");
+        let name = history_name(&default);
+        assert_eq!(name, "Song [abc123]");
+        assert_eq!(history_subtitle(&default, &name), None);
+    }
+
+    #[test]
+    fn insights_are_localized() {
+        let stats = Statistics {
+            granularity: StatsGranularity::Day,
+            buckets: Vec::new(),
+            totals: Default::default(),
+            activity: vec![[0; 24]; 7],
+            busiest_weekday: Some(6),
+            busiest_hour: Some(21),
+            busiest_day: Some(DayCount {
+                date: "2026-09-12".to_string(),
+                count: 1,
+            }),
+            current_streak_days: 0,
+            longest_streak_days: 0,
+            top_uploaders: Vec::new(),
+            formats: Vec::new(),
+        };
+        assert_eq!(
+            insight_sentences(&crate::i18n::DE, &stats),
+            [
+                "Am aktivsten bist du sonntags gegen 21 Uhr",
+                "Aktivster Tag: 12. Sep. 2026 mit 1 Download",
+            ]
+        );
+        assert_eq!(
+            insight_sentences(&crate::i18n::EN, &stats),
+            [
+                "You're most active on Sundays around 21:00",
+                "Busiest day: 12 Sep 2026 with 1 download",
+            ]
+        );
     }
 }
