@@ -1,4 +1,4 @@
-## Unreleased
+##  v0.4.0 (2026-09-23)
 
 * feat: download queue with several links at once, playlist expansion, and per-entry format and file name
 * feat: parallel downloads with a configurable limit (1 to 5, default 2)
@@ -14,6 +14,16 @@
 * feat: messages in the window for startup problems, such as an invalid settings file or a missing output folder
 * feat: settings from earlier versions are migrated automatically, and an unreadable file is moved aside instead of overwritten
 * feat: one log file per day, the last 7 kept
+* feat: add links from any site yt-dlp supports, by typing, pasting with Ctrl+V anywhere, or drag and drop
+* feat: "Add whole playlist" on video links opened from a playlist, and "Add whole mix" for YouTube Mixes (first 50 videos)
+* feat: German translation with a language setting (system, English, German)
+* feat: About section with the app version, a manual update check and a link to the release notes
+* feat: non-blocking update banner instead of a forced update dialog
+* feat: new Deco gold app icon, also shown in the sidebar
+* feat: plain-language error messages for age restrictions, bot checks, private or geo-blocked videos and rate limits
+* fix: renamed downloads show their new name in the list and in the history
+* fix: reading and writing the clipboard works on KDE and GNOME Wayland
+* build: bundled yt-dlp and ffmpeg are pinned and verified by checksum at build time
 
 ##  v0.2.0 (2024-11-10)
 
