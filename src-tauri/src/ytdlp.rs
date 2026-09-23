@@ -11,7 +11,11 @@ use std::{
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tracing::{debug, info, warn};
-use yaydl_shared::{YtDlpChannel, YtDlpError, YtDlpUpdateEvent};
+pub use tokio_util::sync::CancellationToken;
+use yaydl_shared::{
+    Browser, FriendlyError, OutputFormat, Progress, VideoMetadata, YtDlpChannel, YtDlpError,
+    YtDlpUpdateEvent,
+};
 
 pub const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(12 * 60 * 60);
 
@@ -424,6 +428,72 @@ fn update_check_due(last_check: u64, now: u64) -> bool {
     match now.checked_sub(last_check) {
         Some(elapsed) => elapsed >= UPDATE_CHECK_INTERVAL.as_secs(),
         None => true,
+    }
+}
+
+// --- Contract for the queue. The engine track replaces the `todo!()` bodies and
+// keeps these signatures; the old `run_with_self_heal`/`*_args` API may go.
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RunOptions {
+    pub channel: YtDlpChannel,
+    pub cookies_from_browser: Option<Browser>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Resolved {
+    Single(VideoMetadata),
+    /// Entries come from `--flat-playlist`, `webpage_url` is each entry's URL.
+    Playlist {
+        title: Option<String>,
+        entries: Vec<VideoMetadata>,
+        /// Entries without an id or URL (deleted or private videos), skipped.
+        unavailable: u32,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DownloadRequest {
+    pub url: String,
+    pub output_dir: PathBuf,
+    pub format: OutputFormat,
+    /// Validated with `yaydl_shared::validate_file_stem`. `None` is `<title> [<id>]`.
+    pub file_stem: Option<String>,
+    pub embed_metadata: bool,
+    pub run: RunOptions,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum DownloadEvent {
+    Progress(Progress),
+    Processing,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DownloadOutcome {
+    pub file_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum YtDlpFailure {
+    Cancelled,
+    Failed(FriendlyError),
+}
+
+impl<R: Runner> YtDlp<R> {
+    pub async fn resolve(&self, url: &str, run: &RunOptions) -> Result<Resolved, YtDlpFailure> {
+        let _ = (url, run);
+        todo!("engine track")
+    }
+
+    pub async fn download(
+        &self,
+        request: &DownloadRequest,
+        cancel: CancellationToken,
+        on_event: Box<dyn FnMut(DownloadEvent) + Send>,
+    ) -> Result<DownloadOutcome, YtDlpFailure> {
+        let _ = (request, cancel, on_event);
+        todo!("engine track")
     }
 }
 

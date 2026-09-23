@@ -1,3 +1,4 @@
-/src
-/public
+/src-ui
 /Cargo.toml
+/index.html
+/style

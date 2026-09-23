@@ -1,12 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
-  "windows": [
-    "main"
-  ],
-  "permissions": [
-    "core:default",
-    "clipboard-manager:default"
-  ]
+  "description": "The webview only invokes app commands and listens to events. Clipboard, dialog, opener, notification and updater run from Rust, which capabilities do not gate.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
 }
