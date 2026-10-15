@@ -1,6 +1,6 @@
 [package]
 name = "yaydl"
-version = "0.4.1"
+version = "0.5.0"
 description = "Yet Another YouTube Downloader"
 authors = ["NiklasRhf <65732627+niklasrhf@users.noreply.github.com>"]
 edition = "2021"
