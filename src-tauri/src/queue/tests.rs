@@ -262,6 +262,7 @@ impl Harness {
             dir.path().join("settings.toml"),
             Settings {
                 language: Language::English,
+                default_format: mp3(),
                 ..default_settings(out)
             },
         ));

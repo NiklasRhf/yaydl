@@ -198,7 +198,7 @@ fn SettingsForm() -> impl IntoView {
                         }
                     }
                 >
-                    {OutputFormat::all()
+                    {OutputFormat::offered()
                         .into_iter()
                         .map(|format| {
                             view! {

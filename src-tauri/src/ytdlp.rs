@@ -15,8 +15,8 @@ use tokio::sync::RwLock;
 pub use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 use yaydl_shared::{
-    Browser, ErrorKind, FriendlyError, OutputFormat, Progress, VideoMetadata, YtDlpChannel,
-    YtDlpError, YtDlpUpdateEvent,
+    AudioCodec, Browser, ErrorKind, FriendlyError, OutputFormat, Progress, VideoMetadata,
+    YtDlpChannel, YtDlpError, YtDlpUpdateEvent,
 };
 
 pub const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(12 * 60 * 60);
@@ -1004,12 +1004,26 @@ fn download_args(
     args.push(template);
     match request.format {
         OutputFormat::Audio { codec } => {
+            // Preferring a stream already in the target codec turns the
+            // conversion into a lossless remux. MP3 gets no preference because
+            // YouTube has no MP3 stream and the sort then falls to an HLS
+            // stream of unknown bitrate. The quality only applies when a site
+            // has no matching stream and ffmpeg has to encode.
+            let (prefer, quality) = match codec {
+                AudioCodec::Mp3 => (None, "0"),
+                AudioCodec::M4a => (Some("acodec:aac"), "192K"),
+                AudioCodec::Opus => (Some("acodec:opus"), "128K"),
+                AudioCodec::Flac => (None, "0"),
+            };
+            if let Some(prefer) = prefer {
+                args.extend(strings(&["-S", prefer]));
+            }
             args.extend(strings(&[
                 "-x",
                 "--audio-format",
                 codec.as_str(),
                 "--audio-quality",
-                "0",
+                quality,
             ]));
         }
         OutputFormat::Video { quality } => {
@@ -1820,6 +1834,46 @@ mod tests {
             VIDEO_URL,
         ]);
         assert_eq!(args, expected);
+    }
+
+    #[test]
+    fn audio_args_prefer_a_stream_in_the_target_codec() {
+        for (codec, expected) in [
+            (
+                AudioCodec::Opus,
+                &[
+                    "-S",
+                    "acodec:opus",
+                    "-x",
+                    "--audio-format",
+                    "opus",
+                    "--audio-quality",
+                    "128K",
+                ][..],
+            ),
+            (
+                AudioCodec::M4a,
+                &[
+                    "-S",
+                    "acodec:aac",
+                    "-x",
+                    "--audio-format",
+                    "m4a",
+                    "--audio-quality",
+                    "192K",
+                ][..],
+            ),
+            (
+                AudioCodec::Flac,
+                &["-x", "--audio-format", "flac", "--audio-quality", "0"][..],
+            ),
+        ] {
+            let request = request(Path::new("/music"), OutputFormat::Audio { codec });
+            let args = download_args(&request, Path::new("/ff")).unwrap();
+            let mut tail = expected.to_vec();
+            tail.extend(["--", VIDEO_URL]);
+            assert_eq!(after_template(&args), tail, "{codec:?}");
+        }
     }
 
     #[test]

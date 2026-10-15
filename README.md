@@ -12,8 +12,10 @@ Yet Another YouTube Downloader
   then offers "Add whole playlist", which replaces the entry with every video of the playlist. This
   also works for YouTube Mixes, which have no playlist page of their own. To add a regular playlist
   right away, paste its `https://www.youtube.com/playlist?list=...` link instead.
-- **Pick a format** per entry before it starts: MP3, M4A, Opus or FLAC audio, or MP4 video at best,
-  1080p, 720p or 480p. The default for new entries is set in Settings.
+- **Pick a format** per entry before it starts: Opus, M4A or MP3 audio, or MP4 video at best,
+  1080p, 720p or 480p. The default for new entries is set in Settings, Opus out of the box.
+  Opus and M4A keep the stream the site serves when it is already in that codec, so the file is
+  the original quality at the original size. MP3 is always re-encoded, roughly doubling the size.
 - **Rename** an entry before the download to choose the file name, or afterwards to rename the file
   on disk.
 - **Parallel downloads** run up to the limit set in Settings (1 to 5, default 2). The rest wait in

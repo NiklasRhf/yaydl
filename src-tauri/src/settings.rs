@@ -54,7 +54,7 @@ pub fn default_settings(output_dir: PathBuf) -> Settings {
         version: SETTINGS_VERSION,
         output_dir,
         default_format: OutputFormat::Audio {
-            codec: AudioCodec::Mp3,
+            codec: AudioCodec::Opus,
         },
         theme: Theme::System,
         yt_dlp_channel: YtDlpChannel::Nightly,
@@ -92,8 +92,8 @@ pub fn default_output_dir() -> Result<PathBuf, YaydlError> {
     ))
 }
 
-/// Loads `path`, creating it with defaults when missing, migrating a v1 or v2
-/// file, and quarantining an invalid one. `default_output_dir` is only called
+/// Loads `path`, creating it with defaults when missing, migrating a v1, v2 or
+/// v3 file, and quarantining an invalid one. `default_output_dir` is only called
 /// when defaults are needed. Notices are rendered in the language of the
 /// settings that end up in effect.
 pub fn load(
@@ -101,6 +101,7 @@ pub fn load(
     default_output_dir: impl FnOnce() -> Result<PathBuf, YaydlError>,
 ) -> Result<LoadedSettings, YaydlError> {
     let mut quarantined = None;
+    let mut flac_retired = false;
     let settings = match read_optional(path)? {
         None => {
             let settings = default_settings(default_output_dir()?);
@@ -113,8 +114,13 @@ pub fn load(
                 info!(path = %path.display(), ?settings, "loaded settings");
                 settings
             }
-            Ok(Parsed::Migrated { from, settings }) => {
+            Ok(Parsed::Migrated {
+                from,
+                settings,
+                flac_retired: retired,
+            }) => {
                 write_toml_atomic(path, &settings)?;
+                flac_retired = retired;
                 info!(path = %path.display(), from, to = SETTINGS_VERSION, "wrote migrated settings");
                 settings
             }
@@ -136,6 +142,12 @@ pub fn load(
             (texts.settings_invalid)(&reason, &moved),
         ));
     }
+    if flac_retired {
+        notices.push(notice(
+            NoticeLevel::Info,
+            texts.flac_default_retired.to_string(),
+        ));
+    }
     if !settings.output_dir.is_dir() {
         warn!(output_dir = %settings.output_dir.display(), "the output folder does not exist");
         notices.push(notice(
@@ -149,7 +161,30 @@ pub fn load(
 #[derive(Debug)]
 enum Parsed {
     Current(Settings),
-    Migrated { from: u32, settings: Settings },
+    Migrated {
+        from: u32,
+        settings: Settings,
+        /// The old default format was FLAC and is now Opus.
+        flac_retired: bool,
+    },
+}
+
+/// FLAC is no longer offered, so a default of FLAC becomes Opus.
+fn retire_flac(format: OutputFormat) -> (OutputFormat, bool) {
+    match format {
+        OutputFormat::Audio {
+            codec: AudioCodec::Flac,
+        } => {
+            info!("the default format FLAC is no longer offered, switching it to Opus");
+            (
+                OutputFormat::Audio {
+                    codec: AudioCodec::Opus,
+                },
+                true,
+            )
+        }
+        other => (other, false),
+    }
 }
 
 fn parse(raw: &str) -> Result<Parsed, String> {
@@ -157,6 +192,7 @@ fn parse(raw: &str) -> Result<Parsed, String> {
     match table.get("version") {
         None => migrate_v1(raw),
         Some(toml::Value::Integer(2)) => migrate_v2(raw),
+        Some(toml::Value::Integer(3)) => migrate_v3(raw),
         // Every other version, including one written by a newer yaydl, goes
         // through the strict current schema and `validate`, which names the
         // version it expected.
@@ -172,10 +208,11 @@ fn migrate_v2(raw: &str) -> Result<Parsed, String> {
     let v2: SettingsV2 =
         toml::from_str(raw).map_err(|e| format!("version 2 settings: {}", e.message()))?;
     info!(before = ?v2, "migrating version 2 settings");
+    let (default_format, flac_retired) = retire_flac(v2.default_format);
     let settings = Settings {
         version: SETTINGS_VERSION,
         output_dir: v2.output_dir,
-        default_format: v2.default_format,
+        default_format,
         theme: v2.theme,
         yt_dlp_channel: v2.yt_dlp_channel,
         max_concurrent_downloads: v2.max_concurrent_downloads,
@@ -189,6 +226,27 @@ fn migrate_v2(raw: &str) -> Result<Parsed, String> {
     Ok(Parsed::Migrated {
         from: v2.version,
         settings,
+        flac_retired,
+    })
+}
+
+/// Version 3 has the current schema. Only the retired FLAC default changes.
+fn migrate_v3(raw: &str) -> Result<Parsed, String> {
+    let v3: Settings =
+        toml::from_str(raw).map_err(|e| format!("version 3 settings: {}", e.message()))?;
+    info!(before = ?v3, "migrating version 3 settings");
+    let (default_format, flac_retired) = retire_flac(v3.default_format);
+    let settings = Settings {
+        version: SETTINGS_VERSION,
+        default_format,
+        ..v3
+    };
+    settings.validate()?;
+    info!(after = ?settings, "migrated version 3 settings");
+    Ok(Parsed::Migrated {
+        from: 3,
+        settings,
+        flac_retired,
     })
 }
 
@@ -202,9 +260,10 @@ fn migrate_v1(raw: &str) -> Result<Parsed, String> {
             v1.output_format
         )
     })?;
+    let (default_format, flac_retired) = retire_flac(OutputFormat::Audio { codec });
     let settings = Settings {
         output_dir: v1.output_dir,
-        default_format: OutputFormat::Audio { codec },
+        default_format,
         theme: if v1.dark_theme {
             Theme::Dark
         } else {
@@ -215,7 +274,11 @@ fn migrate_v1(raw: &str) -> Result<Parsed, String> {
     };
     settings.validate()?;
     info!(after = ?settings, "migrated version 1 settings");
-    Ok(Parsed::Migrated { from: 1, settings })
+    Ok(Parsed::Migrated {
+        from: 1,
+        settings,
+        flac_retired,
+    })
 }
 
 /// `Settings::validate` plus the filesystem check it leaves to the backend.
@@ -326,7 +389,7 @@ mod tests {
         assert_eq!(loaded.settings, expected);
         assert!(loaded.notices.is_empty());
         let raw = fs::read_to_string(&path).unwrap();
-        assert!(raw.contains("version = 3"), "{raw}");
+        assert!(raw.contains("version = 4"), "{raw}");
         assert!(raw.contains("language = \"system\""), "{raw}");
         let on_disk: Settings = toml::from_str(&raw).unwrap();
         assert_eq!(on_disk, expected);
@@ -352,7 +415,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_file_is_migrated_to_v3_and_rewritten() {
+    fn v2_file_is_migrated_to_v4_and_rewritten() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(SETTINGS_FILE);
         fs::write(&path, v2_toml(dir.path(), "")).unwrap();
@@ -360,7 +423,7 @@ mod tests {
         let loaded = load(&path, || panic!("defaults are not needed")).unwrap();
 
         let expected = Settings {
-            version: 3,
+            version: 4,
             output_dir: dir.path().to_path_buf(),
             default_format: OutputFormat::Video {
                 quality: yaydl_shared::VideoQuality::P720,
@@ -376,7 +439,7 @@ mod tests {
         assert_eq!(loaded.settings, expected);
         assert!(loaded.notices.is_empty());
         let raw = fs::read_to_string(&path).unwrap();
-        assert!(raw.contains("version = 3"), "{raw}");
+        assert!(raw.contains("version = 4"), "{raw}");
         assert!(raw.contains("language = \"system\""), "{raw}");
         let on_disk: Settings = toml::from_str(&raw).unwrap();
         assert_eq!(on_disk, expected);
@@ -392,7 +455,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_round_trips_without_a_rewrite() {
+    fn current_version_round_trips_without_a_rewrite() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(SETTINGS_FILE);
         let settings = Settings {
@@ -412,7 +475,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_without_language_is_quarantined() {
+    fn current_version_without_language_is_quarantined() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(SETTINGS_FILE);
         let full = toml::to_string(&default_settings(dir.path().to_path_buf())).unwrap();
@@ -485,16 +548,120 @@ mod tests {
     #[test]
     fn v1_light_theme_and_channel_are_kept() {
         let parsed = parse("output_dir = \"/music\"\noutput_format = \"flac\"\ndark_theme = false\nyt_dlp_channel = \"stable\"\n");
-        let Ok(Parsed::Migrated { from: 1, settings }) = parsed else {
+        let Ok(Parsed::Migrated {
+            from: 1, settings, ..
+        }) = parsed
+        else {
             panic!("expected a migration from version 1, got {parsed:?}");
         };
         assert_eq!(settings.theme, Theme::Light);
         assert_eq!(settings.yt_dlp_channel, YtDlpChannel::Stable);
-        assert_eq!(
-            settings.default_format,
-            OutputFormat::Audio {
-                codec: AudioCodec::Flac
-            }
+    }
+
+    fn opus() -> OutputFormat {
+        OutputFormat::Audio {
+            codec: AudioCodec::Opus,
+        }
+    }
+
+    fn flac() -> OutputFormat {
+        OutputFormat::Audio {
+            codec: AudioCodec::Flac,
+        }
+    }
+
+    #[test]
+    fn a_flac_default_becomes_opus_in_every_migration() {
+        let v2 = v2_toml(Path::new("/music"), "").replace(
+            "kind = \"video\"\nquality = \"720p\"",
+            "kind = \"audio\"\ncodec = \"flac\"",
+        );
+        let v3 = toml::to_string(&Settings {
+            version: 3,
+            default_format: flac(),
+            ..default_settings(PathBuf::from("/music"))
+        })
+        .unwrap();
+        for (from, raw) in [
+            (
+                1,
+                "output_dir = \"/music\"\noutput_format = \"flac\"\ndark_theme = false\n"
+                    .to_string(),
+            ),
+            (2, v2),
+            (3, v3),
+        ] {
+            let parsed = parse(&raw);
+            let Ok(Parsed::Migrated {
+                from: got,
+                settings,
+                flac_retired: true,
+            }) = parsed
+            else {
+                panic!("expected a FLAC retirement from version {from}, got {parsed:?}");
+            };
+            assert_eq!(got, from);
+            assert_eq!(settings.default_format, opus());
+            assert_eq!(settings.version, SETTINGS_VERSION);
+        }
+    }
+
+    #[test]
+    fn v3_flac_default_is_rewritten_with_a_notice() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(SETTINGS_FILE);
+        let v3 = Settings {
+            version: 3,
+            default_format: flac(),
+            ..default_settings(dir.path().to_path_buf())
+        };
+        fs::write(&path, toml::to_string(&v3).unwrap()).unwrap();
+
+        let loaded = load(&path, || panic!("defaults are not needed")).unwrap();
+
+        let expected = Settings {
+            version: SETTINGS_VERSION,
+            default_format: opus(),
+            ..v3
+        };
+        assert_eq!(loaded.settings, expected);
+        assert_eq!(loaded.notices.len(), 1);
+        assert_eq!(loaded.notices[0].level, NoticeLevel::Info);
+        assert_eq!(loaded.notices[0].text, i18n::EN.flac_default_retired);
+        let on_disk: Settings = toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(on_disk, expected);
+    }
+
+    #[test]
+    fn v3_without_flac_migrates_silently() {
+        let v3 = toml::to_string(&Settings {
+            version: 3,
+            ..default_settings(PathBuf::from("/music"))
+        })
+        .unwrap();
+        let parsed = parse(&v3);
+        let Ok(Parsed::Migrated {
+            from: 3,
+            settings,
+            flac_retired: false,
+        }) = parsed
+        else {
+            panic!("expected a silent migration from version 3, got {parsed:?}");
+        };
+        assert_eq!(settings, default_settings(PathBuf::from("/music")));
+    }
+
+    #[test]
+    fn a_current_file_with_a_flac_default_is_rejected() {
+        let raw = toml::to_string(&Settings {
+            default_format: flac(),
+            ..default_settings(PathBuf::from("/music"))
+        })
+        .unwrap();
+        let result = parse(&raw);
+        assert!(
+            matches!(&result, Err(reason) if reason.contains("no longer offered")),
+            "{result:?}"
         );
     }
 

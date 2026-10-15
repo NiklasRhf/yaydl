@@ -14,7 +14,7 @@ pub type DownloadId = u64;
 // Settings
 // ---------------------------------------------------------------------------
 
-pub const SETTINGS_VERSION: u32 = 3;
+pub const SETTINGS_VERSION: u32 = 4;
 pub const MAX_CONCURRENT_DOWNLOADS: u8 = 5;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -51,6 +51,12 @@ impl Settings {
         if self.output_dir.as_os_str().is_empty() {
             return Err("output_dir is empty".to_string());
         }
+        if !self.default_format.is_offered() {
+            return Err(format!(
+                "default_format {} is no longer offered",
+                self.default_format
+            ));
+        }
         Ok(())
     }
 }
@@ -71,6 +77,8 @@ impl OutputFormat {
         }
     }
 
+    /// Every format yaydl can still download, including retired ones that old
+    /// queue and history entries may name.
     pub fn all() -> Vec<OutputFormat> {
         AudioCodec::ALL
             .into_iter()
@@ -81,6 +89,21 @@ impl OutputFormat {
                     .map(|quality| OutputFormat::Video { quality }),
             )
             .collect()
+    }
+
+    /// The formats a user can pick.
+    pub fn offered() -> Vec<OutputFormat> {
+        OutputFormat::all()
+            .into_iter()
+            .filter(|f| f.is_offered())
+            .collect()
+    }
+
+    pub fn is_offered(&self) -> bool {
+        match self {
+            OutputFormat::Audio { codec } => codec.is_offered(),
+            OutputFormat::Video { .. } => true,
+        }
     }
 
     pub fn parse_key(key: &str) -> Option<OutputFormat> {
@@ -131,6 +154,11 @@ impl AudioCodec {
             AudioCodec::Opus => "Opus",
             AudioCodec::Flac => "FLAC",
         }
+    }
+
+    /// Sources are lossy, so FLAC only made files bigger without adding quality.
+    pub fn is_offered(self) -> bool {
+        self != AudioCodec::Flac
     }
 
     pub fn parse(value: &str) -> Option<Self> {

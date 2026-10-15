@@ -520,6 +520,9 @@ fn ReadyBody(item: Signal<DownloadItem>) -> impl IntoView {
             <select id=format!("format-{id}") class="select py-1 text-sm" on:change=on_change>
                 {OutputFormat::all()
                     .into_iter()
+                    // A queue saved before FLAC was retired can still hold a
+                    // FLAC item, and the select has to show what it will download.
+                    .filter(|format| format.is_offered() || *format == current.get_untracked())
                     .map(|format| {
                         view! {
                             <option value=format.key() prop:selected=move || current.get() == format>

@@ -12,6 +12,7 @@ use yaydl_shared::{DownloadId, Locale, Settings, YtDlpChannel};
 pub struct Texts {
     pub settings_invalid: fn(reason: &str, moved: &Path) -> String,
     pub output_folder_missing: fn(dir: &Path) -> String,
+    pub flac_default_retired: &'static str,
     pub history_file_invalid: fn(reason: &str, moved: &Path) -> String,
     pub queue_file_invalid: fn(reason: &str, moved: &Path) -> String,
     pub queue_save_failed: fn(error: &dyn Display) -> String,
@@ -42,6 +43,7 @@ pub const EN: Texts = Texts {
             dir.display()
         )
     },
+    flac_default_retired: "FLAC is no longer offered because downloads are already compressed, so it only made files bigger without better sound. Your default format is now Opus, which keeps the original quality at a fraction of the size.",
     history_file_invalid: |reason, moved| {
         format!(
             "The download history was invalid ({reason}) and was moved to {}. The history starts empty.",
@@ -117,6 +119,7 @@ pub const DE: Texts = Texts {
             dir.display()
         )
     },
+    flac_default_retired: "FLAC wird nicht mehr angeboten, weil Downloads bereits komprimiert sind und FLAC die Dateien nur größer machte, ohne besser zu klingen. Dein Standardformat ist jetzt Opus, das die Originalqualität bei einem Bruchteil der Größe behält.",
     history_file_invalid: |reason, moved| {
         format!(
             "Der Download-Verlauf war ungültig ({reason}) und wurde nach {} verschoben. Der Verlauf startet leer.",
