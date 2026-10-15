@@ -5,7 +5,7 @@
 # Arch. Update with scripts/update-pkgbuild.sh after a release has been built.
 
 pkgname=yaydl-bin
-pkgver=0.4.0
+pkgver=0.5.0
 pkgrel=1
 pkgdesc="Yet Another YouTube Downloader, a yt-dlp frontend"
 arch=('x86_64')
@@ -19,7 +19,7 @@ options=('!strip' '!debug')
 source=("${url}/releases/download/yaydl-v${pkgver}/yaydl_${pkgver}_amd64.deb"
         "LICENSE-${pkgver}::https://raw.githubusercontent.com/NiklasRhf/yaydl/yaydl-v${pkgver}/LICENSE")
 noextract=("yaydl_${pkgver}_amd64.deb")
-sha256sums=('09719cb1dc519fbf7a54a9417b015970a3c8b17ad1892a9e863ea04491544664'
+sha256sums=('f79178a7de459bcbf45e9884144e0a56bbb14c3822eca9c2baf6ccde28f2d07c'
             'f148aa9a803ae4ab5625037cc44c90148cb033fbe48fb39de0f9e134cde303b3')
 
 prepare() {

@@ -1,6 +1,6 @@
 pkgbase = yaydl-bin
 	pkgdesc = Yet Another YouTube Downloader, a yt-dlp frontend
-	pkgver = 0.4.0
+	pkgver = 0.5.0
 	pkgrel = 1
 	url = https://github.com/NiklasRhf/yaydl
 	arch = x86_64
@@ -17,12 +17,12 @@ pkgbase = yaydl-bin
 	depends = xdg-utils
 	provides = yaydl
 	conflicts = yaydl
-	noextract = yaydl_0.4.0_amd64.deb
+	noextract = yaydl_0.5.0_amd64.deb
 	options = !strip
 	options = !debug
-	source = https://github.com/NiklasRhf/yaydl/releases/download/yaydl-v0.4.0/yaydl_0.4.0_amd64.deb
-	source = LICENSE-0.4.0::https://raw.githubusercontent.com/NiklasRhf/yaydl/yaydl-v0.4.0/LICENSE
-	sha256sums = 09719cb1dc519fbf7a54a9417b015970a3c8b17ad1892a9e863ea04491544664
+	source = https://github.com/NiklasRhf/yaydl/releases/download/yaydl-v0.5.0/yaydl_0.5.0_amd64.deb
+	source = LICENSE-0.5.0::https://raw.githubusercontent.com/NiklasRhf/yaydl/yaydl-v0.5.0/LICENSE
+	sha256sums = f79178a7de459bcbf45e9884144e0a56bbb14c3822eca9c2baf6ccde28f2d07c
 	sha256sums = f148aa9a803ae4ab5625037cc44c90148cb033fbe48fb39de0f9e134cde303b3
 
 pkgname = yaydl-bin
