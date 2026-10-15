@@ -1,3 +1,10 @@
+##  v0.5.0 (2026-10-15)
+
+* feat: Opus is the default audio format for new installs, the original YouTube audio at about half the size of MP3
+* fix: Opus and M4A downloads keep the site's own audio stream instead of re-encoding it, M4A files from YouTube are about 3x smaller
+* feat: FLAC is no longer offered, since the sources are lossy and FLAC only made files bigger. A saved FLAC default switches to Opus with a notice
+* build: bundled ffmpeg updated, the previously pinned build was removed upstream
+
 ##  v0.4.1 (2026-09-23)
 
 * fix: downloads on Windows no longer fail with "yt-dlp reported a finished file that is not on disk" when the title contains characters Windows replaces in file names, such as quotes
