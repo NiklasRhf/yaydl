@@ -18,12 +18,12 @@ const YT_DLP_WINDOWS_SHA256: &str =
 
 // ffmpeg is bundled and never updated at runtime (unlike yt-dlp, which self-updates),
 // so it is pinned to a dated build to keep releases reproducible.
-const FFMPEG_TAG: &str = "autobuild-2026-09-19-17-14";
-const FFMPEG_BUILD: &str = "N-126658-g6397b2b5b6";
+const FFMPEG_TAG: &str = "autobuild-2026-10-14-18-33";
+const FFMPEG_BUILD: &str = "N-127541-gec33c154fa";
 const FFMPEG_LINUX_SHA256: &str =
-    "310e6190212e347ed02a7cf53d485022fba4083b4aab3660ab954d8a145eb044";
+    "7e920b419f614a37110a6e580f4ed16e90478d305ca868066e9f8a3909f7ba10";
 const FFMPEG_WINDOWS_SHA256: &str =
-    "433ae9993f6d135e2a226390724b83bf732ef4edc4c795f0d5501aba054b1d2f";
+    "93a8624aba6a813fc083362b8259b7ac36ed7f34213b3eb3d021c68f6aca4a45";
 
 const SIDECARS: [&str; 3] = ["yt-dlp", "ffmpeg", "ffprobe"];
 const FFMPEG_BINARIES: [&str; 2] = ["ffmpeg", "ffprobe"];
